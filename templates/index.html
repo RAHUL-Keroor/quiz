@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Home - Quiz App{% endblock %}
+{% block content %}
+<div class="text-center">
+  <h1 class="mb-4">Interactive Quiz Application</h1>
+  <p class="lead">Create, Join, or View quizzes easily.</p>
+  <div class="d-flex justify-content-center gap-4 mt-5">
+    <a href="{{ url_for('create_quiz_config') }}" class="btn btn-success btn-lg"><i class="bi bi-plus-circle"></i> Create Quiz</a>
+    <a href="{{ url_for('join_quiz') }}" class="btn btn-primary btn-lg"><i class="bi bi-rocket"></i> Join Quiz</a>
+    <a href="{{ url_for('view_quiz') }}" class="btn btn-warning btn-lg"><i class="bi bi-eye"></i> View</a>
+  </div>
+</div>
+{% endblock %}

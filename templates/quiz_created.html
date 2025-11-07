@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Quiz Created{% endblock %}
+{% block content %}
+<div class="container text-center mt-5">
+    <div class="card shadow-lg p-4 border-0" style="background: linear-gradient(135deg, #e0ffe8, #f0fff4);">
+        <h2 class="mb-3 text-success">🎉 Quiz Successfully Created!</h2>
+        <p class="lead">Share this code or link with students:</p>
+
+        <div class="mt-3">
+            <h4>📘 Quiz Code:</h4>
+            <div class="display-6 text-primary fw-bold">{{ quiz_code }}</div>
+        </div>
+
+        <div class="mt-4">
+            <h4>🔗 Results Link:</h4>
+            <input type="text" class="form-control text-center" value="{{ request.host_url.strip('/') }}{{ quiz_link }}" readonly>
+        </div>
+
+        <a href="/" class="btn btn-outline-primary mt-4">🏠 Back to Home</a>
+    </div>
+</div>
+{% endblock %}

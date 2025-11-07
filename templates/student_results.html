@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>My Quiz Results</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+</head>
+<body class="bg-light">
+<div class="container mt-5">
+    <h3 class="text-center mb-4">📘 Your Quiz Attempts</h3>
+
+    {% if error %}
+    <div class="alert alert-danger text-center">{{ error }}</div>
+    {% endif %}
+
+    <div class="card shadow-sm p-4">
+        <h5>USN: <b>{{ usn }}</b></h5>
+
+        {% if attempts %}
+        <table class="table table-bordered table-striped mt-3">
+            <thead class="table-dark text-center">
+                <tr>
+                    <th>#</th>
+                    <th>Quiz Code</th>
+                    <th>Creator</th>
+                    <th>Date</th>
+                    <th>Time</th>
+                    <th>Score</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for a in attempts %}
+                <tr class="text-center">
+                    <td>{{ loop.index }}</td>
+                    <td>
+                        <!-- Clickable quiz link to see details -->
+                        <a href="/view/attempt/{{ a.attempt_id }}" class="text-decoration-none text-primary">
+                            {{ a.quiz_code }}
+                        </a>
+                    </td>
+                    <td>{{ a.creator_name }}</td>
+                    <td>{{ a.date }}</td>
+                    <td>{{ a.time }}</td>
+                    <td><b>{{ a.score }}</b></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="alert alert-info text-center mt-3">No quiz attempts found.</div>
+        {% endif %}
+    </div>
+
+    <div class="text-center mt-4">
+        <a href="/view" class="btn btn-secondary">⬅ Back</a>
+    </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Creator View</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+</head>
+<body class="bg-light">
+<div class="container mt-5">
+    <h3 class="text-center mb-4">📊 View Quiz Results</h3>
+
+    {% if error %}
+    <div class="alert alert-danger text-center">{{ error }}</div>
+    {% endif %}
+
+    {% if success %}
+    <div class="alert alert-success text-center">{{ success }}</div>
+    {% endif %}
+
+    <!-- ✅ FORM: Quiz Code, Token, and optional Email -->
+    <form method="POST" class="mb-4">
+        <div class="mb-3">
+            <label for="quiz_code" class="form-label">Quiz Code:</label>
+            <input type="text" id="quiz_code" name="quiz_code" class="form-control"
+                   placeholder="Enter Quiz Code (e.g., DFFE4425)" required>
+        </div>
+
+        <div class="mb-3">
+            <label for="creator_token" class="form-label">Creator Token:</label>
+            <input type="text" id="creator_token" name="creator_token" class="form-control"
+                   placeholder="Enter 6-digit Creator Token" required>
+        </div>
+
+        <!-- ✅ NEW: Optional Email Field -->
+        <div class="mb-3">
+            <label for="creator_email" class="form-label">Email (optional):</label>
+            <input type="email" id="creator_email" name="creator_email" class="form-control"
+                   placeholder="Enter your email to get results summary (optional)">
+        </div>
+
+        <button type="submit" class="btn btn-primary w-100">View Results</button>
+    </form>
+
+    {% if results %}
+    <div class="card shadow-sm p-4">
+        <h5>Results for Quiz Code: <b>{{ quiz_code }}</b></h5>
+        <h6>Total Attempts: <b>{{ total_attempts }}</b></h6>
+
+        <!-- ✅ Updated Table -->
+        <table class="table table-bordered table-striped mt-3">
+            <thead class="table-dark text-center">
+                <tr>
+                    <th>#</th>
+                    <th>Name</th>
+                    <th>USN</th>
+                    <th>Date</th>
+                    <th>Start Time</th>
+                    <th>End Time</th>
+                    <th>Score</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in results %}
+                <tr class="text-center">
+                    <td>{{ loop.index }}</td>
+                    <td>{{ r.name }}</td>
+                    <td>{{ r.usn }}</td>
+                    <td>{{ r.date }}</td>
+                    <td>{{ r.start_time }}</td>
+                    <td>{{ r.end_time }}</td>
+                    <td><b>{{ r.score }}</b></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <!-- ✅ Export Buttons -->
+        <form method="POST" class="text-center mt-4">
+            <input type="hidden" name="quiz_code" value="{{ quiz_code }}">
+            <input type="hidden" name="creator_token" value="{{ request.form.get('creator_token') }}">
+            <input type="hidden" name="creator_email" value="{{ request.form.get('creator_email') }}">
+            <button type="submit" name="export_format" value="pdf" class="btn btn-danger me-2">📄 Export as PDF</button>
+            <button type="submit" name="export_format" value="docx" class="btn btn-success">📝 Export as DOCX</button>
+        </form>
+    </div>
+    {% endif %}
+</div>
+</body>
+</html>

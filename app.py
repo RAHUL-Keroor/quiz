@@ -1,0 +1,882 @@
+import os
+from flask import Flask, render_template, request, redirect, url_for, session
+from pymongo import MongoClient
+import random   # for shuffling questions
+from pymongo import MongoClient
+from bson import ObjectId
+from datetime import datetime
+from bson import ObjectId
+from datetime import datetime
+from docx import Document
+import os
+from datetime import datetime
+from flask import render_template
+from flask_mail import Mail, Message
+
+
+import uuid
+from fpdf import FPDF
+import io
+from flask import send_file
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify
+import PyPDF2
+import nltk
+from nltk.tokenize import sent_tokenize, word_tokenize
+from nltk.corpus import stopwords
+import ast
+from flask import Flask, render_template, request, send_file
+from pymongo import MongoClient
+from fpdf import FPDF
+from docx import Document
+import io
+
+# --------------------------------------------------------------------------
+# --- 1. Configuration & App Initialization ---
+from datetime import datetime
+from flask_mail import Mail, Message
+app = Flask(__name__)
+app.secret_key = 'super-secret-key-change-this-in-production'
+app.config['MAIL_SERVER'] = 'smtp.gmail.com'
+app.config['MAIL_PORT'] = 587
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USERNAME'] = 'rahulkeroor6@gmail.com'      # change this
+app.config['MAIL_PASSWORD'] = 'arqngatvmalvbxhc'
+app.config['MAIL_DEFAULT_SENDER'] = app.config['MAIL_USERNAME']       # NOT your Gmail password
+mail = Mail(app)
+
+
+
+
+@app.context_processor
+def inject_datetime():
+    return dict(datetime=datetime)
+
+app.secret_key = 'super-secret-key-change-this-in-production'
+DATABASE = 'quiz.db'
+UPLOAD_FOLDER = 'uploads'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# Make sure nltk data exists
+nltk.download('punkt')
+nltk.download('stopwords')
+
+# --------------------------------------------------------------------------
+# --- 2. Database Utility Functions ---
+# --------------------------------------------------------------------------
+import re
+import spacy
+import random
+from nltk.tokenize import sent_tokenize, word_tokenize
+from nltk.corpus import stopwords
+
+# Load SpaCy model for NLP question generation
+nlp = spacy.load("en_core_web_sm")
+
+def get_db_connection():
+    client = MongoClient("mongodb://127.0.0.1:27017/")
+    return client["quiz_app_db"]  # any db name you like
+
+# Helper functions
+def options_to_db(options_list):
+    return ";;;".join(options_list)
+
+def options_from_db(options_str):
+    return options_str.split(";;;")
+
+# --------------------------------------------------------------------------
+# --- 3. Improved NLP-Powered Question Generator ---
+
+
+# load the spaCy model (with fallback if missing)
+try:
+    nlp = spacy.load("en_core_web_sm")
+except OSError:
+    import subprocess
+    subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"])
+    nlp = spacy.load("en_core_web_sm")
+def generate_questions_from_pdf(pdf_path, num_questions=5):
+    """
+    Always generates 4 options per question, even with messy PDFs.
+    """
+    import re, random, PyPDF2
+    from nltk.tokenize import sent_tokenize, word_tokenize
+    from nltk.corpus import stopwords
+
+    stop_words = set(stopwords.words("english"))
+
+    # --- Step 1: Extract clean text from PDF ---
+    text = ""
+    with open(pdf_path, "rb") as f:
+        reader = PyPDF2.PdfReader(f)
+        for page in reader.pages:
+            page_text = page.extract_text() or ""
+            # Clean up weird symbols like , •, etc.
+            page_text = re.sub(r"[^\x00-\x7F]+", " ", page_text)
+            text += page_text + " "
+
+    # --- Step 2: Split into usable sentences ---
+    sentences = [s.strip() for s in sent_tokenize(text) if len(s.split()) > 5]
+    if not sentences:
+        return []
+
+    # --- Step 3: Collect words for distractor pool ---
+    all_words = [
+        w for w in word_tokenize(text)
+        if w.isalpha() and w.lower() not in stop_words
+    ]
+    all_unique = list(set(all_words))
+    if len(all_unique) < 10:
+        all_unique += ["software", "design", "process", "system", "method", "value", "function"]
+
+    questions = []
+
+    # --- Step 4: Generate each question ---
+    for sent in random.sample(sentences, min(num_questions, len(sentences))):
+        words = [w for w in word_tokenize(sent) if w.isalpha() and w.lower() not in stop_words]
+        if len(words) < 2:
+            continue
+
+        correct_answer = random.choice(words)
+        q_text = re.sub(r"\b" + re.escape(correct_answer) + r"\b", "_____", sent, count=1)
+
+        # --- Step 5: Pick distractors ---
+        distractors = [
+            w for w in all_unique
+            if w.lower() != correct_answer.lower()
+            and w.lower() not in stop_words
+            and len(w) > 2
+        ]
+        random.shuffle(distractors)
+        distractors = distractors[:3]
+
+        # --- Step 6: GUARANTEE 4 options ---
+        options = [correct_answer] + distractors
+        while len(options) < 4:
+            options.append(f"Option {chr(65 + len(options))}")
+
+        random.shuffle(options)
+
+        # --- Step 7: Save question ---
+        questions.append({
+            "question_text": q_text.strip(),
+            "options": options,
+            "correct_answer": correct_answer,
+            "description": "Select the correct word to complete the sentence."
+        })
+
+    return questions
+@app.route('/upload_pdf', methods=['POST'])
+def upload_pdf():
+    """
+    Step 1: Upload PDF → Generate questions → Show editable list before saving.
+    Step 2: User reviews → Save Quiz via /save_quiz
+    """
+    pdf = request.files.get('pdf_file')
+    num_questions = int(request.form.get('num_questions', 5))
+    Quiz_name = request.form.get('Quiz_name', 'Anonymous')
+    timer = int(request.form.get('timer_minutes', 5))
+    is_shuffled = request.form.get('is_shuffled') == 'true'
+
+    # ✅ New: USN range inputs
+    usn_start = request.form.get('usn_start', '').strip().upper()
+    usn_end = request.form.get('usn_end', '').strip().upper()
+
+    # ✅ Detect whether PDF is actually uploaded
+    if not pdf or pdf.filename.strip() == "":
+        print("⚠️ No PDF uploaded. Creating empty question fields manually.")
+        questions = []
+        for i in range(num_questions):
+            questions.append({
+                "question_text": f"Question {i+1}: ",
+                "options": ["", "", "", ""],
+                "correct_answer": "",
+                "description": ""
+            })
+    else:
+        # --- Save uploaded PDF locally ---
+        save_path = os.path.join(UPLOAD_FOLDER, pdf.filename)
+        pdf.save(save_path)
+
+        # --- Generate questions from the PDF ---
+        questions = generate_questions_from_pdf(save_path, num_questions)
+
+    # --- Clean and normalize question options ---
+    for q in questions:
+        opts = q.get("options", [])
+        if not isinstance(opts, list):
+            opts = [str(opts)]
+        opts = [str(o).strip() for o in opts if o]
+        while len(opts) < 4:
+            opts.append(f"Option {chr(65 + len(opts))}")
+        q["options"] = opts
+
+    # ✅ Show editable form
+    return render_template(
+        'display_generated_questions.html',
+        questions=questions,
+        num_questions=len(questions),
+        Quiz_name=Quiz_name,
+        timer=timer,
+        is_shuffled=is_shuffled,
+        usn_start=usn_start,
+        usn_end=usn_end
+    )
+
+
+@app.route('/save_quiz', methods=['POST'])
+def save_quiz():
+    num_questions = int(request.form.get('num_questions', 0))
+    Quiz_name = request.form.get('Quiz_name', 'Anonymous')
+
+    if num_questions == 0:
+        return "No questions received", 400
+
+    import random
+    quiz_code = str(uuid.uuid4())[:8].upper()
+    creator_token = str(random.randint(100000, 999999))  # ✅ 6-digit token
+    quiz_link = f"/results/{quiz_code}?token={creator_token}"
+
+    db = get_db_connection()
+    quiz_doc = {
+        "quiz_code": quiz_code,
+        "Quiz_name": Quiz_name,
+        "num_questions": num_questions,
+        "timer_minutes": int(request.form.get('timer_minutes', 5)),
+        "is_shuffled": request.form.get('is_shuffled') == 'true',
+        "creator_token": creator_token,  # ✅ stored in DB
+        "usn_start": request.form.get('usn_start', '').upper(),
+        "usn_end": request.form.get('usn_end', '').upper()
+    }
+
+    insert_result = db.quizzes.insert_one(quiz_doc)
+    print("✅ Quiz inserted with ID:", insert_result.inserted_id)
+    print("🔐 Creator token (6 digits):", creator_token)
+
+    quiz = db.quizzes.find_one({"quiz_code": quiz_code})
+    quiz_id = quiz["_id"]
+
+    for i in range(1, num_questions + 1):
+        q_text = request.form.get(f'question_text_{i}', '').strip()
+        options = [
+            request.form.get(f'option_{i}_{j}', '').strip()
+            for j in range(1, 5)
+            if request.form.get(f'option_{i}_{j}', '').strip()
+        ]
+        correct_answer = request.form.get(f'correct_answer_{i}', '').strip()
+        description = request.form.get(f'description_{i}', '').strip()
+
+        db.questions.insert_one({
+            "quiz_id": quiz_id,
+            "question_text": q_text,
+            "options": options,
+            "correct_answer": correct_answer,
+            "description": description
+        })
+
+    return render_template(
+        'quiz_created.html',
+        quiz_code=quiz_code,
+        quiz_link=quiz_link
+    )
+
+
+
+# --------------------------------------------------------------------------
+# --- 5. Join, Attempt, and Result Views ---
+# --------------------------------------------------------------------------
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/join', methods=['GET', 'POST'])
+@app.route('/join', methods=['GET', 'POST'])
+def join_quiz():
+    db = get_db_connection()
+
+    if request.method == 'POST':
+        quiz_code = request.form['quiz_code'].upper()
+        usn = request.form['usn'].upper()
+        student_name = request.form['student_name']
+
+        # Find the quiz by code
+        quiz = db.quizzes.find_one({"quiz_code": quiz_code})
+        if not quiz:
+            return render_template('join_quiz.html', error="Invalid Quiz Code.", preset_code=quiz_code)
+
+        # ✅ Check USN range restriction
+        usn_start = quiz.get("usn_start")
+        usn_end = quiz.get("usn_end")
+
+        if usn_start and usn_end:
+            # Ensure both are uppercase for comparison
+            if not (usn_start <= usn <= usn_end):
+                return render_template(
+                    'join_quiz.html',
+                    error=f"❌ You are not authorized to attempt this quiz. Allowed range: {usn_start} - {usn_end}",
+                    preset_code=quiz_code
+                )
+
+        # Check if this user already attempted
+        existing_attempt = db.attempts.find_one({"quiz_id": quiz["_id"], "usn": usn})
+        if existing_attempt:
+            return render_template('join_quiz.html', error="You already attempted this quiz.", preset_code=quiz_code)
+
+        # Record a new attempt
+        db.attempts.insert_one({
+            "quiz_id": quiz["_id"],
+            "usn": usn,
+            "student_name": student_name,
+            "score": 0,
+            "start_time": datetime.now(),
+            "end_time": None
+        })
+
+        # Save attempt info in session
+        session['attempt_data'] = {
+            'quiz_id': str(quiz["_id"]),
+            'usn': usn,
+            'student_name': student_name
+        }
+
+        return redirect(url_for('attempt_quiz'))
+
+    preset_code = request.args.get('code', '')
+    return render_template('join_quiz.html', preset_code=preset_code, error=None)
+
+
+@app.route('/quiz/attempt', methods=['GET', 'POST'])
+def attempt_quiz():
+    # --- 1. Verify session data ---
+    if 'attempt_data' not in session:
+        return redirect(url_for('join_quiz'))
+
+    db = get_db_connection()
+    attempt_data = session['attempt_data']
+
+    # --- 2. Validate quiz_id ---
+    try:
+        quiz_id = ObjectId(attempt_data['quiz_id'])
+    except Exception:
+        return "Invalid quiz ID format", 400
+
+    # --- 3. Fetch quiz and questions ---
+    quiz = db.quizzes.find_one({"_id": quiz_id})
+    if not quiz:
+        return "Quiz not found", 404
+
+    questions = list(db.questions.find({"quiz_id": quiz_id}))
+    if not questions:
+        return "No questions found for this quiz.", 404
+
+    # --- 4. Clean and normalize options safely ---
+    import ast
+    q_list = []
+    for q in questions:
+        q_dict = dict(q)
+        opts = q_dict.get("options", [])
+
+        # Handle string formats stored in DB (e.g., "['A', 'B', 'C', 'D']")
+        if isinstance(opts, str):
+            try:
+                opts = ast.literal_eval(opts)
+            except Exception:
+                # fallback if it's pipe-separated: "A|B|C|D"
+                opts = [x.strip() for x in opts.split('|') if x.strip()]
+
+        # Guarantee a valid list of strings
+        if not isinstance(opts, list):
+            opts = [str(opts)]
+        else:
+            opts = [str(o).strip() for o in opts if o]
+
+        # 🧩 Fallback: ensure 4 options always exist
+        if len(opts) == 0:
+            opts = ["Option A", "Option B", "Option C", "Option D"]
+        elif len(opts) < 4:
+            # pad missing ones for display consistency
+            while len(opts) < 4:
+                opts.append(f"Option {chr(65 + len(opts))}")  # A, B, C, D
+
+        q_dict["options"] = opts
+        q_list.append(q_dict)
+
+    # --- 5. Shuffle questions if quiz requires ---
+    if quiz.get("is_shuffled", False):
+        random.shuffle(q_list)
+
+    # --- 6. Handle quiz submission ---
+    if request.method == "POST":
+        total_score = 0
+        submitted_answers = {}
+
+        for q in q_list:
+            qid = str(q["_id"])
+            submitted = request.form.get(f"q_{qid}")
+            submitted_answers[qid] = submitted
+
+            # compare safely
+            if submitted and submitted.strip() == q.get("correct_answer", "").strip():
+                total_score += 1
+
+        # --- Save attempt result ---
+        # --- Save attempt result ---
+        db.attempts.update_one(
+            {"quiz_id": quiz_id, "usn": attempt_data["usn"]},
+            {"$set": {
+                "quiz_code": quiz.get("quiz_code"),          # 🧩 link to result link
+                "student_name": attempt_data.get("student_name"),
+                "usn": attempt_data.get("usn"),
+                "score": total_score,
+                "submitted_answers": submitted_answers,
+                "end_time": datetime.now()
+            }},
+            upsert=True
+        )
+
+        # --- Prepare result data for rendering ---
+        score_data = {
+            "quiz": quiz,
+            "score": total_score,
+            "total_questions": len(q_list),
+            "questions": q_list,
+            "submitted": submitted_answers,
+            "final_view": True
+        }
+
+        # clear session after submission to prevent reattempts
+        session.pop("attempt_data", None)
+        return render_template("attempt_quiz.html", **score_data)
+
+    # --- 7. If GET request: show quiz normally ---
+    return render_template("attempt_quiz.html", quiz=quiz, questions=q_list, final_view=False)
+
+
+
+@app.route('/autosave', methods=['POST'])
+def autosave():
+    data = request.json
+    quiz_id = ObjectId(data.get('quiz_id'))
+    usn = data.get('usn')
+    submitted = data.get('answers', {})
+
+    db = get_db_connection()
+    db.attempts.update_one(
+        {"quiz_id": quiz_id, "usn": usn},
+        {"$set": {"submitted_answers": submitted, "last_autosave": datetime.now()}},
+        upsert=True
+    )
+    return jsonify({"status": "saved"})
+
+
+
+@app.route('/results/<quiz_code>')
+def view_results(quiz_code):
+    token = request.args.get('token')
+    if not token:
+        return "Missing token", 403
+
+    db = get_db_connection()
+    quiz = db.quizzes.find_one({"quiz_code": quiz_code})
+
+    if not quiz or quiz.get("creator_token") != token:
+        return "Invalid quiz or token", 404
+
+    # Fetch all attempts for this quiz, sorted by score descending
+    attempts = list(db.attempts.find({"quiz_id": quiz["_id"]}).sort("score", -1))
+
+    return render_template('result.html', quiz=quiz, attempts=attempts)
+
+@app.route('/create_quiz_config')
+def create_quiz_config():
+    return render_template('create_quiz_config.html')
+
+# --------------------------------------------------------------------------
+# --- 6. NEW FEATURE: View Quiz (Student or Creator) ---
+# --------------------------------------------------------------------------
+@app.route('/view', methods=['GET', 'POST'])
+def view_quiz():
+    if request.method == 'POST':
+        user_type = request.form.get('user_type')
+        if user_type == 'student':
+            return redirect(url_for('student_view'))
+        elif user_type == 'creator':
+            return redirect(url_for('creator_view'))
+    return render_template('view_choice.html')
+@app.route('/view/student', methods=['GET', 'POST'])
+def student_view():
+    if request.method == 'POST':
+        usn = request.form.get('usn', '').upper().strip()
+        db = get_db_connection()
+
+        print("🔍 Searching attempts for USN:", usn)
+
+        # ✅ Fetch all attempts for this USN
+        attempts = list(db.attempts.find({"usn": usn}).sort("end_time", -1))
+        print("🧾 Found attempts:", len(attempts))
+
+        if not attempts:
+            return render_template('student_view.html', error=f"No quiz attempts found for USN: {usn}")
+
+        results = []
+        for a in attempts:
+            quiz = db.quizzes.find_one({"_id": a["quiz_id"]})
+            if quiz:
+                results.append({
+                    "attempt_id": str(a["_id"]),  # for detail link
+                    "quiz_code": quiz.get("quiz_code", "N/A"),
+                    "Quiz_name": quiz.get("Quiz_name", "Unknown"),
+                    "score": a.get("score", 0),
+                    "date": a.get("end_time").strftime("%Y-%m-%d") if a.get("end_time") else "N/A",
+                    "time": a.get("end_time").strftime("%H:%M:%S") if a.get("end_time") else "N/A"
+                })
+
+        print("✅ Final Results:", results)
+        return render_template('student_results.html', attempts=results, usn=usn)
+
+    return render_template('student_view.html')
+
+@app.route('/view/attempt/<attempt_id>')
+def view_attempt_details(attempt_id):
+    db = get_db_connection()
+
+    # --- Find attempt document ---
+    try:
+        attempt = db.attempts.find_one({"_id": ObjectId(attempt_id)})
+    except Exception as e:
+        return f"Invalid attempt ID: {e}", 400
+
+    if not attempt:
+        return "Attempt not found", 404
+
+    # --- Fetch quiz info ---
+    quiz = db.quizzes.find_one({"_id": attempt["quiz_id"]})
+    if not quiz:
+        return "Quiz not found", 404
+
+    # --- Fetch all quiz questions ---
+    questions = list(db.questions.find({"quiz_id": quiz["_id"]}))
+    if not questions:
+        return "No questions found", 404
+
+    # --- Extract answers ---
+    submitted_answers = attempt.get("submitted_answers", {})
+
+    detailed_list = []
+    for q in questions:
+        q_id = str(q["_id"])
+        student_answer = submitted_answers.get(q_id, "Not Attempted")
+        correct_answer = q.get("correct_answer", "N/A")
+        description = q.get("description", "")
+        q_text = q.get("question_text", "")
+        options = q.get("options", [])
+
+        detailed_list.append({
+            "question": q_text,
+            "options": options,
+            "student_answer": student_answer,
+            "correct_answer": correct_answer,
+            "description": description,
+            "is_correct": (student_answer == correct_answer)
+        })
+
+    return render_template(
+        "attempt_details.html",
+        quiz=quiz,
+        attempt=attempt,
+        detailed=detailed_list
+    )
+
+
+
+
+
+
+
+
+@app.route('/view/creator', methods=['GET', 'POST'])
+def creator_view():
+    if request.method == 'POST':
+        # ✅ STEP 1: Get quiz_code and creator_token directly from form
+        quiz_code = request.form.get('quiz_code', '').strip().upper()
+        creator_token = request.form.get('creator_token', '').strip()
+
+        if not quiz_code or not creator_token:
+            return render_template('creator_view.html', error="Please enter both Quiz Code and Creator Token.")
+
+        # ✅ STEP 2: Connect to MongoDB
+        db = get_db_connection()
+
+        # ✅ STEP 3: Validate quiz + token
+        quiz = db.quizzes.find_one({"quiz_code": quiz_code, "creator_token": creator_token})
+        if not quiz:
+            return render_template('creator_view.html', error="Invalid Quiz Code or Creator Token.")
+
+        # ✅ STEP 4: Fetch attempts
+        attempts = list(db.attempts.find({"quiz_id": quiz["_id"]}))
+
+        if not attempts:
+            return render_template('creator_view.html', error="No attempts found for this quiz.")
+
+        # ✅ STEP 5: Extract & format time fields
+        result_data = []
+        for a in attempts:
+            # Fetch directly from DB document
+            usn = a.get("usn", "N/A")
+            name = a.get("student_name", "Unknown")
+            score = a.get("score", 0)
+            start_time = a.get("start_time")
+            end_time = a.get("end_time")
+
+            # Normalize times from Mongo (datetime or string)
+            def fmt_time(t):
+                if isinstance(t, datetime):
+                    return t.strftime("%H:%M:%S")
+                elif isinstance(t, str) and len(t) >= 19:
+                    # handles "2025-11-06T10:10:14.985Z"
+                    return t[11:19]
+                return "N/A"
+
+            def fmt_date(t):
+                if isinstance(t, datetime):
+                    return t.strftime("%Y-%m-%d")
+                elif isinstance(t, str) and len(t) >= 10:
+                    return t[:10]
+                return "N/A"
+
+            date_str = fmt_date(start_time or end_time)
+            start_str = fmt_time(start_time)
+            end_str = fmt_time(end_time)
+
+            result_data.append({
+                "name": name,
+                "usn": usn,
+                "date": date_str,
+                "start_time": start_str,
+                "end_time": end_str,
+                "score": score
+            })
+
+        total_attempts = len(result_data)
+
+        # ✅ STEP 6: Export results if requested
+        creator_email = request.form.get('creator_email')
+        export_format = request.form.get('export_format')
+        creator_email = request.form.get('creator_email')
+
+
+
+        if export_format == 'pdf':
+            return export_results_pdf(result_data, quiz_code, total_attempts)
+
+        elif export_format == 'docx':
+            return export_results_docx(result_data, quiz_code, total_attempts)
+        
+
+        # ✅ Send summary email if email entered
+            # ✅ Email sending: if email is provided
+        if creator_email:
+            try:
+                send_results_docx_via_email(creator_email, result_data, quiz_code, total_attempts)
+                print(f"📧 Results sent to {creator_email}")
+            except Exception as e:
+                print(f"⚠️ Failed to send email: {e}")
+
+        # ✅ STEP 7: Render HTML table
+        return render_template(
+            'creator_view.html',
+            quiz_code=quiz_code,
+            results=result_data,
+            total_attempts=total_attempts
+        )
+
+    # Default GET
+    return render_template('creator_view.html')
+
+
+
+
+def export_results_pdf(results, quiz_code, total_attempts):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(200, 10, txt=f"Quiz Results - Code: {quiz_code}", ln=True, align="C")
+
+    pdf.set_font("Arial", "", 12)
+    pdf.cell(200, 10, txt=f"Total Attempts: {total_attempts}", ln=True, align="C")
+
+    pdf.ln(10)
+    pdf.set_font("Arial", "B", 11)
+    pdf.cell(10, 10, "#", 1)
+    pdf.cell(35, 10, "Date", 1)
+    pdf.cell(30, 10, "Start", 1)
+    pdf.cell(30, 10, "End", 1)
+    pdf.cell(30, 10, "USN", 1)
+    pdf.cell(35, 10, "Name", 1)
+    pdf.cell(20, 10, "Score", 1, ln=True)
+
+    pdf.set_font("Arial", "", 10)
+    for i, r in enumerate(results, 1):
+        pdf.cell(10, 10, str(i), 1)
+        pdf.cell(35, 10, str(r.get("date", "") or ""), 1)
+        pdf.cell(30, 10, str(r.get("start_time", "") or ""), 1)
+        pdf.cell(30, 10, str(r.get("end_time", "") or ""), 1)
+        pdf.cell(30, 10, str(r.get("usn", "") or ""), 1)
+        pdf.cell(35, 10, str(r.get("name", "") or ""), 1)
+        pdf.cell(20, 10, str(r.get("score", "") or ""), 1, ln=True)
+
+    # ✅ Save to INTERNAL STORAGE (Documents folder)
+    user_docs = os.path.join(os.path.expanduser("~"), "Documents", "Quiz_Results")
+    os.makedirs(user_docs, exist_ok=True)
+
+    filename = f"Quiz_{quiz_code}_Results_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+    full_path = os.path.join(user_docs, filename)
+    pdf.output(full_path)
+
+    print(f"✅ PDF saved successfully in: {full_path}")
+
+    # ✅ Optional: automatically open file after saving (Windows only)
+    try:
+        os.startfile(full_path)
+    except Exception as e:
+        print(f"⚠️ Could not auto-open file: {e}")
+
+    # ✅ Show confirmation message in browser
+    return render_template("creator_view.html", success=f"PDF stored successfully at: {full_path}")
+
+
+def export_results_docx(results, quiz_code, total_attempts):
+    doc = Document()
+    doc.add_heading(f"Quiz Results - Code: {quiz_code}", 0)
+    doc.add_paragraph(f"Total Attempts: {total_attempts}\n")
+
+    table = doc.add_table(rows=1, cols=7)
+    hdr_cells = table.rows[0].cells
+    hdr_cells[0].text = "#"
+    hdr_cells[1].text = "Date"
+    hdr_cells[2].text = "Start Time"
+    hdr_cells[3].text = "End Time"
+    hdr_cells[4].text = "USN"
+    hdr_cells[5].text = "Name"
+    hdr_cells[6].text = "Score"
+
+    for i, r in enumerate(results, 1):
+        row_cells = table.add_row().cells
+        row_cells[0].text = str(i)
+        row_cells[1].text = str(r.get("date", "") or "")
+        row_cells[2].text = str(r.get("start_time", "") or "")
+        row_cells[3].text = str(r.get("end_time", "") or "")
+        row_cells[4].text = str(r.get("usn", "") or "")
+        row_cells[5].text = str(r.get("name", "") or "")
+        row_cells[6].text = str(r.get("score", "") or "")
+
+    # ✅ SAVE TO INTERNAL STORAGE (Documents folder)
+    user_docs = os.path.join(os.path.expanduser("~"), "Documents", "Quiz_Results")
+    os.makedirs(user_docs, exist_ok=True)
+
+    filename = f"Quiz_{quiz_code}_Results_{datetime.now().strftime('%Y%m%d_%H%M')}.docx"
+    full_path = os.path.join(user_docs, filename)
+
+    doc.save(full_path)
+
+    print(f"✅ DOCX saved successfully in: {full_path}")
+
+    # Optional: automatically open file (Windows only)
+    try:
+        os.startfile(full_path)
+    except:
+        pass
+
+    return render_template("creator_view.html", success=f"DOCX stored successfully at: {full_path}")
+
+
+@app.route('/db_test')
+def db_test():
+    try:
+        db = get_db_connection()
+        db.command("ping")
+        return "✅ MongoDB connected successfully"
+    except Exception as e:
+        return f"❌ MongoDB connection failed: {e}"
+
+
+
+
+@app.route('/debug/questions/<quiz_code>')
+def debug_questions(quiz_code):
+    db = get_db_connection()
+    quiz = db.quizzes.find_one({"quiz_code": quiz_code.upper()})
+    if not quiz:
+        return "Quiz not found", 404
+
+    questions = list(db.questions.find({"quiz_id": quiz["_id"]}))
+    for q in questions:
+        print("🧩", q["question_text"], q["options"])
+    return jsonify([
+        {"question": q["question_text"], "options": q["options"]}
+        for q in questions
+    ])
+
+
+def send_results_docx_via_email(email, results, quiz_code, total_attempts):
+    from io import BytesIO
+
+    # ✅ Step 1: Generate DOCX in memory
+    doc = Document()
+    doc.add_heading(f"Quiz Results - Code: {quiz_code}", 0)
+    doc.add_paragraph(f"Total Attempts: {total_attempts}\n")
+
+    table = doc.add_table(rows=1, cols=7)
+    hdr_cells = table.rows[0].cells
+    hdr_cells[0].text = "#"
+    hdr_cells[1].text = "Date"
+    hdr_cells[2].text = "Start Time"
+    hdr_cells[3].text = "End Time"
+    hdr_cells[4].text = "USN"
+    hdr_cells[5].text = "Name"
+    hdr_cells[6].text = "Score"
+
+    for i, r in enumerate(results, 1):
+        row = table.add_row().cells
+        row[0].text = str(i)
+        row[1].text = str(r.get("date", "") or "")
+        row[2].text = str(r.get("start_time", "") or "")
+        row[3].text = str(r.get("end_time", "") or "")
+        row[4].text = str(r.get("usn", "") or "")
+        row[5].text = str(r.get("name", "") or "")
+        row[6].text = str(r.get("score", "") or "")
+
+    # Save DOCX to memory (not disk)
+    buffer = BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+
+    # ✅ Step 2: Create and send email
+    msg = Message(
+        subject=f"📘 Quiz Results Report - {quiz_code}",
+        recipients=[email],
+        body=f"""
+Hello,
+
+Please find attached the full quiz results for Quiz Code: {quiz_code}.
+Total Attempts: {total_attempts}
+
+- Quiz System
+"""
+    )
+
+    # Attach DOCX
+    msg.attach(
+        filename=f"Quiz_{quiz_code}_Results.docx",
+        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        data=buffer.read()
+    )
+
+    mail.send(msg)
+    print(f"📧 DOCX report sent successfully to {email}")
+
+
+# --------------------------------------------------------------------------
+# --- 7. Run the app ---
+# --------------------------------------------------------------------------
+if __name__ == "__main__":
+    app.run()

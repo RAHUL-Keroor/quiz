@@ -1,0 +1,13 @@
+{
+  "name": "mini_project",
+  "version": "1.0.0",
+  "main": "app.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node app.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "mongodb": "^6.9.0"
+  }
+}

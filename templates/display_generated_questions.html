@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Review and Edit Questions{% endblock %}
+{% block content %}
+
+<div class="container mt-4">
+    <h2 class="text-center mb-4">🧠 Review & Edit Quiz — {{ Quiz_name }}</h2>
+
+    <form method="POST" action="/save_quiz" class="mb-5">
+        <!-- Hidden values -->
+        <input type="hidden" name="Quiz_name" value="{{ Quiz_name }}">
+        <input type="hidden" name="num_questions" value="{{ num_questions }}">
+        <input type="hidden" name="timer_minutes" value="{{ timer }}">
+        <input type="hidden" name="is_shuffled" value="{{ is_shuffled }}">
+        <input type="hidden" name="usn_start" value="{{ usn_start }}">
+        <input type="hidden" name="usn_end" value="{{ usn_end }}">
+
+        {% for q_index in range(questions|length) %}
+        {% set q = questions[q_index] %}
+
+        <div class="card mb-3 shadow-sm">
+            <div class="card-body">
+                <h5>Q{{ q_index + 1 }}.</h5>
+
+                <div class="mb-3">
+                    <label class="form-label">Question Text:</label>
+                    <input type="text" name="question_text_{{ q_index + 1 }}" value="{{ q.question_text }}"
+                        class="form-control" placeholder="Enter question text">
+                </div>
+
+                {% for o_index in range(q.options|length) %}
+                <div class="mb-2">
+                    <label class="form-label">Option {{ o_index + 1 }}:</label>
+                    <input type="text" name="option_{{ q_index + 1 }}_{{ o_index + 1 }}"
+                        value="{{ q.options[o_index] }}" class="form-control" placeholder="Option {{ o_index + 1 }}">
+                </div>
+                {% endfor %}
+
+                <div class="mb-3">
+                    <label class="form-label">Correct Answer:</label>
+                    <input type="text" name="correct_answer_{{ q_index + 1 }}" value="{{ q.correct_answer }}"
+                        class="form-control" placeholder="Enter correct answer">
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Description:</label>
+                    <textarea name="description_{{ q_index + 1 }}" class="form-control" rows="2"
+                        placeholder="Add explanation">{{ q.description }}</textarea>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+
+        <div class="text-center mt-4">
+            <button type="submit" class="btn btn-success px-5">💾 Save Quiz</button>
+        </div>
+    </form>
+</div>
+
+{% endblock %}
