@@ -5,3 +5,4 @@ dnspython
 flask-cors
 Flask-Login
 python-dotenv
+pytz
