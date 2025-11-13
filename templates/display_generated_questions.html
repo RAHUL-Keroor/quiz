@@ -13,6 +13,8 @@
         <input type="hidden" name="is_shuffled" value="{{ is_shuffled }}">
         <input type="hidden" name="usn_start" value="{{ usn_start }}">
         <input type="hidden" name="usn_end" value="{{ usn_end }}">
+        <input type="hidden" name="start_time" value="{{ start_time }}">
+
 
         {% for q_index in range(questions|length) %}
         {% set q = questions[q_index] %}

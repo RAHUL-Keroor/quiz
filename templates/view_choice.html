@@ -3,7 +3,8 @@
 {% block content %}
 <div class="card bg-light text-dark p-4 mx-auto" style="max-width:600px;">
   <h3 class="text-center mb-3">View Quiz Results</h3>
-  <form method="POST">
+
+  <form id="viewForm">
     <div class="form-check mb-2">
       <input class="form-check-input" type="radio" name="user_type" value="student" required>
       <label class="form-check-label">Student View</label>
@@ -12,7 +13,26 @@
       <input class="form-check-input" type="radio" name="user_type" value="creator" required>
       <label class="form-check-label">Creator View</label>
     </div>
-    <button type="submit" class="btn btn-warning w-100"><i class="bi bi-eye"></i> Continue</button>
+
+    <button type="button" class="btn btn-warning w-100" onclick="navigateToView()">
+      <i class="bi bi-eye"></i> Continue
+    </button>
   </form>
 </div>
+
+<script>
+  function navigateToView() {
+    const selected = document.querySelector('input[name="user_type"]:checked');
+    if (!selected) {
+      alert("Please select a view type!");
+      return;
+    }
+
+    if (selected.value === "student") {
+      window.location.href = "/view/student";
+    } else if (selected.value === "creator") {
+      window.location.href = "/view/creator";
+    }
+  }
+</script>
 {% endblock %}

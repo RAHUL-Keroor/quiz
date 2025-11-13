@@ -1,45 +1,70 @@
 {% extends "base.html" %}
 {% block title %}Create Quiz{% endblock %}
 {% block content %}
+
 <div class="card bg-light text-dark p-4 mx-auto" style="max-width:600px;">
-  <h3 class="text-center mb-3">Create New Quiz</h3>
+  <h3 class="text-center mb-3">🧠 Create New Quiz</h3>
+
   <form action="/upload_pdf" method="POST" enctype="multipart/form-data">
+
+    <!-- Quiz Name -->
     <div class="mb-3">
-      <label class="form-label">Quizz Name</label>
-      <input type="text" name="Quiz_name" class="form-control" required>
+      <label class="form-label">Quiz Name</label>
+      <input type="text" name="Quiz_name" class="form-control" placeholder="Enter Quiz Title" required>
     </div>
+
+    <!-- PDF Upload (Optional) -->
     <div class="mb-3">
-      <label class="form-label">Upload PDF</label>
-      <input type="file" name="pdf_file" class="form-control" required>
+      <label class="form-label">Upload PDF (Optional)</label>
+      <input type="file" name="pdf_file" class="form-control">
+      <small class="text-muted">You can skip this and add questions manually.</small>
     </div>
+
     <div class="row">
+      <!-- Number of Questions -->
       <div class="col-md-6 mb-3">
         <label class="form-label">Number of Questions</label>
-        <input type="number" name="num_questions" value="5" class="form-control">
+        <input type="number" name="num_questions" value="5" class="form-control" min="1">
       </div>
+
+      <!-- Timer -->
       <div class="col-md-6 mb-3">
         <label class="form-label">Timer (Minutes)</label>
-        <input type="number" name="timer_minutes" value="5" class="form-control">
+        <input type="number" name="timer_minutes" value="5" class="form-control" min="1">
       </div>
-      <div class="form-group mt-3">
-    <label for="usn_start">USN Range (Allowed Students)</label>
-    <div class="row">
-        <div class="col">
-            <input type="text" name="usn_start" class="form-control" placeholder="Start USN (e.g. 3BR23AI001)" required>
-        </div>
-        <div class="col">
-            <input type="text" name="usn_end" class="form-control" placeholder="End USN (e.g. 3BR23AI100)" required>
-        </div>
     </div>
-</div>
+
+    <!-- 🕒 New: Optional Start Time (For Live Mode) -->
+    <div class="mb-3">
+      <label class="form-label">Start Time</label>
+      <input type="time" name="start_time" class="form-control">
+    </div>
 
 
+    <!-- USN Range -->
+    <div class="form-group mt-3">
+      <label for="usn_start">USN Range (Allowed Students)</label>
+      <div class="row">
+        <div class="col">
+          <input type="text" name="usn_start" class="form-control" placeholder="Start USN (e.g. 3BR23AI001)" required>
+        </div>
+        <div class="col">
+          <input type="text" name="usn_end" class="form-control" placeholder="End USN (e.g. 3BR23AI100)" required>
+        </div>
+      </div>
     </div>
-    <div class="form-check mb-3">
+
+    <!-- Shuffle Option -->
+    <div class="form-check mb-3 mt-3">
       <input class="form-check-input" type="checkbox" name="is_shuffled" value="true">
       <label class="form-check-label">Shuffle Questions</label>
     </div>
-    <button type="submit" class="btn btn-success w-100"><i class="bi bi-gear"></i> Generate Quiz</button>
+
+    <!-- Submit Button -->
+    <button type="submit" class="btn btn-success w-100">
+      <i class="bi bi-gear"></i> Generate Quiz
+    </button>
   </form>
 </div>
+
 {% endblock %}

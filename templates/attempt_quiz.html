@@ -3,36 +3,75 @@
 {% block content %}
 
 <div class="container mt-4">
-  <h2 class="text-center mb-4">
-    🧠 Attempt Quiz — {{ quiz.quiz_code }}
-  </h2>
+  {# WAITING ROOM: shown when backend passes wait_seconds #}
+  {% if wait_seconds is defined %}
+  <div class="text-center mt-5">
+    <h2>⏳ Quiz "{{ quiz.Quiz_name or quiz.quiz_code }}" will start soon!</h2>
 
-  {% if not final_view %}
-  <!-- QUIZ FORM -->
-  <form method="POST">
+    <div class="mt-4">
+      <h5>🕒 Current Time: <span id="currentTime"></span></h5>
+      <h5 class="text-success">
+        📅 Quiz Start Time (IST): {{ display_start.strftime('%I:%M %p') if display_start else 'N/A' }}
+      </h5>
+
+    </div>
+
+    <div id="countdown" class="display-4 text-danger mt-4 fw-bold"></div>
+    <p class="text-muted mt-3">Please wait... The quiz will start automatically.</p>
+  </div>
+
+  <script>
+    // live local clock (client)
+    function updateCurrentTime() {
+      const now = new Date();
+      document.getElementById('currentTime').textContent = now.toLocaleTimeString('en-IN', { hour12: true });
+    }
+    updateCurrentTime();
+    setInterval(updateCurrentTime, 1000);
+
+    // waiting countdown
+    let waitLeft = {{ wait_seconds }};
+    const cd = document.getElementById('countdown');
+    function updateWait() {
+      const m = Math.floor(waitLeft / 60);
+      const s = waitLeft % 60;
+      cd.textContent = `${m}:${s.toString().padStart(2, '0')}`;
+      if (waitLeft <= 0) {
+        clearInterval(waitTimer);
+        // reload to fetch quiz when start_time reached
+        window.location.reload();
+      }
+      waitLeft--;
+    }
+    updateWait();
+    const waitTimer = setInterval(updateWait, 1000);
+  </script>
+
+  {% elif not final_view %}
+  {# QUIZ ATTEMPT SECTION #}
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="mb-0">🧠 Attempt Quiz — {{ quiz.quiz_code }}</h2>
+    <div class="timer-box bg-dark text-white px-3 py-2 rounded">
+      ⏱ Time Left: <span id="quizTimer"></span>
+    </div>
+  </div>
+
+  <form id="quizForm" method="POST">
     {% for q in questions %}
     <div class="card mb-3 shadow-sm">
       <div class="card-body">
         <h5>Q{{ loop.index }}. {{ q.question_text }}</h5>
 
         {% if q.options %}
-          {% for opt in q.options %}
-          <div class="form-check">
-            <input
-              class="form-check-input"
-              type="radio"
-              name="q_{{ q._id }}"
-              id="q_{{ q._id }}_{{ loop.index }}"
-              value="{{ opt }}"
-              required
-            >
-            <label class="form-check-label" for="q_{{ q._id }}_{{ loop.index }}">
-              {{ opt }}
-            </label>
-          </div>
-          {% endfor %}
+        {% for opt in q.options %}
+        <div class="form-check">
+          <input class="form-check-input" type="radio" name="q_{{ q._id }}" id="q_{{ q._id }}_{{ loop.index }}"
+            value="{{ opt }}" required>
+          <label class="form-check-label" for="q_{{ q._id }}_{{ loop.index }}">{{ opt }}</label>
+        </div>
+        {% endfor %}
         {% else %}
-          <p class="text-muted">⚠️ No options found for this question.</p>
+        <p class="text-muted">⚠️ No options available.</p>
         {% endif %}
       </div>
     </div>
@@ -43,8 +82,32 @@
     </div>
   </form>
 
+  <script>
+    // Quiz timer (uses server-side quiz.timer_minutes)
+    let totalSeconds = ({{ quiz.timer_minutes or 5 }} * 60) | 0;
+    const display = document.getElementById('quizTimer');
+    const form = document.getElementById('quizForm');
+
+    function quizTick() {
+      const m = Math.floor(totalSeconds / 60);
+      const s = totalSeconds % 60;
+      display.textContent = `${m}:${s.toString().padStart(2, '0')}`;
+      if (totalSeconds <= 0) {
+        clearInterval(quizInterval);
+        alert("⏰ Time's up — submitting your answers.");
+        form.submit();
+      }
+      totalSeconds--;
+    }
+    quizTick();
+    const quizInterval = setInterval(quizTick, 1000);
+
+    // optional: warn before submit (e.g., 10s left)
+    // optional autosave: you can call fetch('/autosave', {...}) periodically here
+  </script>
+
   {% else %}
-  <!-- QUIZ RESULT -->
+  {# RESULTS SECTION #}
   <div class="alert alert-info text-center shadow-sm">
     <h4>✅ Your Score: {{ score }} / {{ total_questions }}</h4>
   </div>

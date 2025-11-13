@@ -1,39 +1,38 @@
-import os
-from flask import Flask, render_template, request, redirect, url_for, session
-from pymongo import MongoClient
-import random   # for shuffling questions
-from pymongo import MongoClient
-from bson import ObjectId
-from datetime import datetime
-from bson import ObjectId
-from datetime import datetime
-from docx import Document
-import os
-from datetime import datetime
-from flask import render_template
-from flask_mail import Mail, Message
+# -----------------------------------------
+# 🧠 CLEANED & ORGANIZED IMPORTS
+# -----------------------------------------
 
-
-import uuid
-from fpdf import FPDF
+# 🔹 Standard Library
+import os
 import io
-from flask import send_file
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify
+import re
+import ast
+import uuid
+import random
+from datetime import datetime, timedelta
+
+# 🔹 Third-Party Libraries
+import pytz
 import PyPDF2
 import nltk
-from nltk.tokenize import sent_tokenize, word_tokenize
-from nltk.corpus import stopwords
-import ast
-from flask import Flask, render_template, request, send_file
+import spacy
+from bson import ObjectId
 from pymongo import MongoClient
+from flask import (
+    Flask, render_template, request, redirect,
+    url_for, session, jsonify, send_file
+)
+from flask_mail import Mail, Message
 from fpdf import FPDF
 from docx import Document
-import io
+from nltk.tokenize import sent_tokenize, word_tokenize
+from nltk.corpus import stopwords
+
+
 
 # --------------------------------------------------------------------------
 # --- 1. Configuration & App Initialization ---
-from datetime import datetime
-from flask_mail import Mail, Message
+
 app = Flask(__name__)
 app.secret_key = 'super-secret-key-change-this-in-production'
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
@@ -63,18 +62,16 @@ nltk.download('stopwords')
 # --------------------------------------------------------------------------
 # --- 2. Database Utility Functions ---
 # --------------------------------------------------------------------------
-import re
-import spacy
-import random
-from nltk.tokenize import sent_tokenize, word_tokenize
-from nltk.corpus import stopwords
+
 
 # Load SpaCy model for NLP question generation
 nlp = spacy.load("en_core_web_sm")
+from pymongo import MongoClient
 
 def get_db_connection():
-    client = MongoClient("mongodb://127.0.0.1:27017/")
-    return client["quiz_app_db"]  # any db name you like
+    client = MongoClient("mongodb+srv://rahul:Rahul%40bitm@cluster0.ak99aiq.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
+    return client["quiz_app_db"]
+
 
 # Helper functions
 def options_to_db(options_list):
@@ -94,15 +91,25 @@ except OSError:
     import subprocess
     subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"])
     nlp = spacy.load("en_core_web_sm")
-def generate_questions_from_pdf(pdf_path, num_questions=5):
+def generate_questions_from_pdf(pdf_path, num_questions=5, question_types=None):
     """
-    Always generates 4 options per question, even with messy PDFs.
+    Enhanced NLP-based question generator that produces:
+    - Fill-in-the-Blank (Cloze)
+    - WH-type (Who, What, When, Where)
+    - True/False
+    - Definition-based questions
     """
-    import re, random, PyPDF2
-    from nltk.tokenize import sent_tokenize, word_tokenize
-    from nltk.corpus import stopwords
+
 
     stop_words = set(stopwords.words("english"))
+
+    # Load SpaCy model (only once)
+    try:
+        nlp = spacy.load("en_core_web_sm")
+    except OSError:
+        import subprocess
+        subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"])
+        nlp = spacy.load("en_core_web_sm")
 
     # --- Step 1: Extract clean text from PDF ---
     text = ""
@@ -110,61 +117,121 @@ def generate_questions_from_pdf(pdf_path, num_questions=5):
         reader = PyPDF2.PdfReader(f)
         for page in reader.pages:
             page_text = page.extract_text() or ""
-            # Clean up weird symbols like , •, etc.
-            page_text = re.sub(r"[^\x00-\x7F]+", " ", page_text)
+            page_text = re.sub(r"[^\x00-\x7F]+", " ", page_text)  # clean symbols
             text += page_text + " "
 
-    # --- Step 2: Split into usable sentences ---
+    # --- Step 2: Split into valid sentences ---
     sentences = [s.strip() for s in sent_tokenize(text) if len(s.split()) > 5]
     if not sentences:
         return []
 
-    # --- Step 3: Collect words for distractor pool ---
-    all_words = [
-        w for w in word_tokenize(text)
-        if w.isalpha() and w.lower() not in stop_words
-    ]
+    # --- Step 3: Prepare distractor pool ---
+    all_words = [w for w in word_tokenize(text) if w.isalpha() and w.lower() not in stop_words]
     all_unique = list(set(all_words))
     if len(all_unique) < 10:
         all_unique += ["software", "design", "process", "system", "method", "value", "function"]
 
     questions = []
+    used_sentences = set()
 
-    # --- Step 4: Generate each question ---
-    for sent in random.sample(sentences, min(num_questions, len(sentences))):
-        words = [w for w in word_tokenize(sent) if w.isalpha() and w.lower() not in stop_words]
-        if len(words) < 2:
+    # Default types if none given
+    if not question_types:
+        question_types = ["cloze", "wh", "truefalse", "definition"]
+
+    # --- Step 4: Generate questions ---
+    for sent in random.sample(sentences, min(num_questions * 2, len(sentences))):
+        if sent in used_sentences:
             continue
+        used_sentences.add(sent)
+        doc = nlp(sent)
+        q_type = random.choice(question_types)
 
-        correct_answer = random.choice(words)
-        q_text = re.sub(r"\b" + re.escape(correct_answer) + r"\b", "_____", sent, count=1)
+        # --- 4A: WH-Type Questions (using Named Entities) ---
+        if q_type == "wh":
+            for ent in doc.ents:
+                label = ent.label_
+                q_text = None
+                if label == "PERSON":
+                    q_text = sent.replace(ent.text, "Who")
+                elif label == "ORG":
+                    q_text = sent.replace(ent.text, "Which organization")
+                elif label == "GPE":
+                    q_text = sent.replace(ent.text, "Where")
+                elif label == "DATE":
+                    q_text = sent.replace(ent.text, "When")
 
-        # --- Step 5: Pick distractors ---
-        distractors = [
-            w for w in all_unique
-            if w.lower() != correct_answer.lower()
-            and w.lower() not in stop_words
-            and len(w) > 2
-        ]
-        random.shuffle(distractors)
-        distractors = distractors[:3]
+                if q_text:
+                    q_text = q_text if q_text.endswith("?") else q_text + "?"
+                    correct_answer = ent.text
+                    distractors = random.sample(all_unique, min(3, len(all_unique)))
+                    options = [correct_answer] + distractors
+                    random.shuffle(options)
+                    questions.append({
+                        "question_text": q_text,
+                        "options": options,
+                        "correct_answer": correct_answer,
+                        "description": "  "
+                    })
+                    break  # one entity per sentence
 
-        # --- Step 6: GUARANTEE 4 options ---
-        options = [correct_answer] + distractors
-        while len(options) < 4:
-            options.append(f"Option {chr(65 + len(options))}")
+        # --- 4B: Definition-Based Questions ---
+        elif q_type == "definition" and (" is a " in sent or " refers to " in sent or " known as " in sent):
+            try:
+                topic = sent.split(" is ")[0].strip()
+                q_text = f"What is {topic}?"
+                correct_answer = sent.split(" is ")[1].strip()
+                distractors = random.sample(all_unique, min(3, len(all_unique)))
+                options = [correct_answer] + distractors
+                random.shuffle(options)
+                questions.append({
+                    "question_text": q_text,
+                    "options": options,
+                    "correct_answer": correct_answer,
+                    "description": " "
+                })
+            except Exception:
+                continue
 
-        random.shuffle(options)
+        # --- 4C: True/False Questions ---
+        elif q_type == "truefalse":
+            statement = sent
+            is_true = random.choice([True, False])
+            if not is_true:
+                statement = re.sub(r"\bis\b", "is not", statement)
+                statement = re.sub(r"\bare\b", "are not", statement)
+            questions.append({
+                "question_text": f"True or False: {statement}",
+                "options": ["True", "False"],
+                "correct_answer": "True" if is_true else "False",
+                "description": "Mark if the statement is correct."
+            })
 
-        # --- Step 7: Save question ---
-        questions.append({
-            "question_text": q_text.strip(),
-            "options": options,
-            "correct_answer": correct_answer,
-            "description": "Select the correct word to complete the sentence."
-        })
+        # --- 4D: Fill-in-the-Blank (Cloze) ---
+        else:
+            words = [w for w in word_tokenize(sent) if w.isalpha() and w.lower() not in stop_words]
+            if len(words) < 2:
+                continue
+            correct_answer = random.choice(words)
+            q_text = re.sub(r"\b" + re.escape(correct_answer) + r"\b", "_____", sent, count=1)
+            distractors = [w for w in all_unique if w.lower() != correct_answer.lower()]
+            random.shuffle(distractors)
+            options = [correct_answer] + distractors[:3]
+            while len(options) < 4:
+                options.append(f"Option {chr(65 + len(options))}")
+            random.shuffle(options)
+            questions.append({
+                "question_text": q_text.strip(),
+                "options": options,
+                "correct_answer": correct_answer,
+                "description": "Select the correct word to complete the sentence."
+            })
+
+        # stop when we reach desired count
+        if len(questions) >= num_questions:
+            break
 
     return questions
+
 @app.route('/upload_pdf', methods=['POST'])
 def upload_pdf():
     """
@@ -219,10 +286,9 @@ def upload_pdf():
         timer=timer,
         is_shuffled=is_shuffled,
         usn_start=usn_start,
-        usn_end=usn_end
+        usn_end=usn_end,
+        start_time=request.form.get('start_time') 
     )
-
-
 @app.route('/save_quiz', methods=['POST'])
 def save_quiz():
     num_questions = int(request.form.get('num_questions', 0))
@@ -231,27 +297,53 @@ def save_quiz():
     if num_questions == 0:
         return "No questions received", 400
 
-    import random
     quiz_code = str(uuid.uuid4())[:8].upper()
-    creator_token = str(random.randint(100000, 999999))  # ✅ 6-digit token
+    creator_token = str(random.randint(100000, 999999))
     quiz_link = f"/results/{quiz_code}?token={creator_token}"
 
     db = get_db_connection()
+    india_tz = pytz.timezone("Asia/Kolkata")
+    start_time_str = request.form.get('start_time')
+
+    print(f"🕒 Received from form: {start_time_str}")
+
+    if start_time_str:
+        try:
+            today = datetime.now(india_tz).date()
+            hours, minutes = map(int, start_time_str.split(':'))
+            start_time = india_tz.localize(datetime(today.year, today.month, today.day, hours, minutes))
+
+            # ✅ If entered time already passed today → schedule for tomorrow
+            if start_time < datetime.now(india_tz):
+                start_time = start_time + timedelta(days=1)
+
+        except Exception as e:
+            print("⚠️ Invalid start time:", e)
+            start_time = datetime.now(india_tz)
+    else:
+        start_time = datetime.now(india_tz)
+    
+
+
+    # ✅ Build quiz document
     quiz_doc = {
         "quiz_code": quiz_code,
         "Quiz_name": Quiz_name,
         "num_questions": num_questions,
         "timer_minutes": int(request.form.get('timer_minutes', 5)),
         "is_shuffled": request.form.get('is_shuffled') == 'true',
-        "creator_token": creator_token,  # ✅ stored in DB
+        "creator_token": creator_token,
         "usn_start": request.form.get('usn_start', '').upper(),
-        "usn_end": request.form.get('usn_end', '').upper()
+        "usn_end": request.form.get('usn_end', '').upper(),
+        "start_time": start_time  # 🕒 timezone-aware and fixed
     }
 
-    insert_result = db.quizzes.insert_one(quiz_doc)
-    print("✅ Quiz inserted with ID:", insert_result.inserted_id)
-    print("🔐 Creator token (6 digits):", creator_token)
+    db.quizzes.insert_one(quiz_doc)
 
+    print("✅ Quiz created successfully")
+    print("🕒 Chosen Start Time (IST):", start_time.strftime("%Y-%m-%d %H:%M:%S %Z"))
+
+    # ✅ Store questions
     quiz = db.quizzes.find_one({"quiz_code": quiz_code})
     quiz_id = quiz["_id"]
 
@@ -276,10 +368,9 @@ def save_quiz():
     return render_template(
         'quiz_created.html',
         quiz_code=quiz_code,
-        quiz_link=quiz_link
+        quiz_link=quiz_link,
+        start_time=start_time.strftime("%I:%M %p")
     )
-
-
 
 # --------------------------------------------------------------------------
 # --- 5. Join, Attempt, and Result Views ---
@@ -344,23 +435,31 @@ def join_quiz():
     return render_template('join_quiz.html', preset_code=preset_code, error=None)
 
 
+
+
+
+# --------------------------------------------------------------------------
+# --- ATTEMPT QUIZ ROUTE (Updated with proper start_time waiting) ---
+# --------------------------------------------------------------------------
 @app.route('/quiz/attempt', methods=['GET', 'POST'])
 def attempt_quiz():
-    # --- 1. Verify session data ---
+    # --- [1] Verify session data ---
     if 'attempt_data' not in session:
         return redirect(url_for('join_quiz'))
 
     db = get_db_connection()
     attempt_data = session['attempt_data']
 
-    # --- 2. Validate quiz_id ---
+    # --- [2] Validate quiz_id ---
     try:
         quiz_id = ObjectId(attempt_data['quiz_id'])
     except Exception:
         return "Invalid quiz ID format", 400
 
-    # --- 3. Fetch quiz and questions ---
+    # --- [3] Fetch quiz and questions ---
     quiz = db.quizzes.find_one({"_id": quiz_id})
+    print("📄 Raw start_time from MongoDB:", quiz.get("start_time"), type(quiz.get("start_time")))
+
     if not quiz:
         return "Quiz not found", 404
 
@@ -368,43 +467,75 @@ def attempt_quiz():
     if not questions:
         return "No questions found for this quiz.", 404
 
-    # --- 4. Clean and normalize options safely ---
+    # --- [4] Time-based access control (LIVE WAITING LOGIC) ---
+    # --- 4. Check if current time < start_time ---
+    india_tz = pytz.timezone("Asia/Kolkata")
+    now = datetime.now(india_tz)
+
+    quiz_start = quiz.get("start_time")
+
+    # 🕒 Convert start_time safely from MongoDB
+    if isinstance(quiz_start, str):
+        try:
+            quiz_start = datetime.fromisoformat(quiz_start)
+        except Exception:
+            try:
+                quiz_start = datetime.strptime(quiz_start, "%Y-%m-%d %H:%M:%S")
+            except Exception:
+                quiz_start = None
+
+    # Ensure timezone-awareness
+    # ✅ Ensure quiz_start is timezone-aware and in IST
+    if quiz_start:
+        # MongoDB usually stores in UTC, so convert it to IST
+        if quiz_start.tzinfo is None:
+            quiz_start = pytz.UTC.localize(quiz_start)
+        quiz_start = quiz_start.astimezone(india_tz)
+
+        print("🕒 Converted quiz_start to IST:", quiz_start.strftime("%Y-%m-%d %H:%M:%S"))
+        print("🕒 Current time (IST):", now.strftime("%Y-%m-%d %H:%M:%S"))
+
+
+    # 🕐 Compare current time with quiz start
+    if quiz_start and now < quiz_start:
+        wait_seconds = int((quiz_start - now).total_seconds())
+        print(f"⏳ Waiting: Quiz starts in {wait_seconds} seconds")
+        print(f"🕒 Current Time (IST): {now.strftime('%H:%M:%S')}")
+        print(f"🕒 Quiz Start Time (IST): {quiz_start.strftime('%H:%M:%S')}")
+        display_start = quiz_start.astimezone(india_tz)
+        return render_template("attempt_quiz.html", quiz=quiz, wait_seconds=wait_seconds, display_start=display_start)
+
+
+
+    # --- [5] Clean and normalize question options ---
     import ast
     q_list = []
     for q in questions:
         q_dict = dict(q)
         opts = q_dict.get("options", [])
 
-        # Handle string formats stored in DB (e.g., "['A', 'B', 'C', 'D']")
         if isinstance(opts, str):
             try:
                 opts = ast.literal_eval(opts)
             except Exception:
-                # fallback if it's pipe-separated: "A|B|C|D"
                 opts = [x.strip() for x in opts.split('|') if x.strip()]
 
-        # Guarantee a valid list of strings
         if not isinstance(opts, list):
             opts = [str(opts)]
         else:
             opts = [str(o).strip() for o in opts if o]
 
-        # 🧩 Fallback: ensure 4 options always exist
-        if len(opts) == 0:
-            opts = ["Option A", "Option B", "Option C", "Option D"]
-        elif len(opts) < 4:
-            # pad missing ones for display consistency
-            while len(opts) < 4:
-                opts.append(f"Option {chr(65 + len(opts))}")  # A, B, C, D
+        while len(opts) < 4:
+            opts.append(f"Option {chr(65 + len(opts))}")
 
         q_dict["options"] = opts
         q_list.append(q_dict)
 
-    # --- 5. Shuffle questions if quiz requires ---
+    # --- [6] Shuffle if enabled ---
     if quiz.get("is_shuffled", False):
         random.shuffle(q_list)
 
-    # --- 6. Handle quiz submission ---
+    # --- [7] Handle submission ---
     if request.method == "POST":
         total_score = 0
         submitted_answers = {}
@@ -413,42 +544,36 @@ def attempt_quiz():
             qid = str(q["_id"])
             submitted = request.form.get(f"q_{qid}")
             submitted_answers[qid] = submitted
-
-            # compare safely
             if submitted and submitted.strip() == q.get("correct_answer", "").strip():
                 total_score += 1
 
-        # --- Save attempt result ---
-        # --- Save attempt result ---
         db.attempts.update_one(
             {"quiz_id": quiz_id, "usn": attempt_data["usn"]},
             {"$set": {
-                "quiz_code": quiz.get("quiz_code"),          # 🧩 link to result link
+                "quiz_code": quiz.get("quiz_code"),
                 "student_name": attempt_data.get("student_name"),
                 "usn": attempt_data.get("usn"),
                 "score": total_score,
                 "submitted_answers": submitted_answers,
-                "end_time": datetime.now()
+                "end_time": datetime.now(india_tz)
             }},
             upsert=True
         )
 
-        # --- Prepare result data for rendering ---
-        score_data = {
-            "quiz": quiz,
-            "score": total_score,
-            "total_questions": len(q_list),
-            "questions": q_list,
-            "submitted": submitted_answers,
-            "final_view": True
-        }
-
-        # clear session after submission to prevent reattempts
         session.pop("attempt_data", None)
-        return render_template("attempt_quiz.html", **score_data)
+        return render_template(
+            "attempt_quiz.html",
+            quiz=quiz,
+            score=total_score,
+            total_questions=len(q_list),
+            questions=q_list,
+            submitted=submitted_answers,
+            final_view=True
+        )
 
-    # --- 7. If GET request: show quiz normally ---
+    # --- [8] Render quiz normally if GET ---
     return render_template("attempt_quiz.html", quiz=quiz, questions=q_list, final_view=False)
+
 
 
 
@@ -502,6 +627,7 @@ def view_quiz():
         elif user_type == 'creator':
             return redirect(url_for('creator_view'))
     return render_template('view_choice.html')
+
 @app.route('/view/student', methods=['GET', 'POST'])
 def student_view():
     if request.method == 'POST':
@@ -524,7 +650,7 @@ def student_view():
                 results.append({
                     "attempt_id": str(a["_id"]),  # for detail link
                     "quiz_code": quiz.get("quiz_code", "N/A"),
-                    "Quiz_name": quiz.get("Quiz_name", "Unknown"),
+                    "quiz_name": quiz.get("Quiz_name", "Unknown"),
                     "score": a.get("score", 0),
                     "date": a.get("end_time").strftime("%Y-%m-%d") if a.get("end_time") else "N/A",
                     "time": a.get("end_time").strftime("%H:%M:%S") if a.get("end_time") else "N/A"
@@ -587,12 +713,6 @@ def view_attempt_details(attempt_id):
     )
 
 
-
-
-
-
-
-
 @app.route('/view/creator', methods=['GET', 'POST'])
 def creator_view():
     if request.method == 'POST':
@@ -613,26 +733,22 @@ def creator_view():
 
         # ✅ STEP 4: Fetch attempts
         attempts = list(db.attempts.find({"quiz_id": quiz["_id"]}))
-
         if not attempts:
             return render_template('creator_view.html', error="No attempts found for this quiz.")
 
         # ✅ STEP 5: Extract & format time fields
         result_data = []
         for a in attempts:
-            # Fetch directly from DB document
             usn = a.get("usn", "N/A")
             name = a.get("student_name", "Unknown")
             score = a.get("score", 0)
             start_time = a.get("start_time")
             end_time = a.get("end_time")
 
-            # Normalize times from Mongo (datetime or string)
             def fmt_time(t):
                 if isinstance(t, datetime):
                     return t.strftime("%H:%M:%S")
                 elif isinstance(t, str) and len(t) >= 19:
-                    # handles "2025-11-06T10:10:14.985Z"
                     return t[11:19]
                 return "N/A"
 
@@ -661,19 +777,12 @@ def creator_view():
         # ✅ STEP 6: Export results if requested
         creator_email = request.form.get('creator_email')
         export_format = request.form.get('export_format')
-        creator_email = request.form.get('creator_email')
-
-
 
         if export_format == 'pdf':
             return export_results_pdf(result_data, quiz_code, total_attempts)
-
         elif export_format == 'docx':
             return export_results_docx(result_data, quiz_code, total_attempts)
-        
 
-        # ✅ Send summary email if email entered
-            # ✅ Email sending: if email is provided
         if creator_email:
             try:
                 send_results_docx_via_email(creator_email, result_data, quiz_code, total_attempts)
@@ -691,6 +800,7 @@ def creator_view():
 
     # Default GET
     return render_template('creator_view.html')
+
 
 
 
@@ -879,4 +989,4 @@ Total Attempts: {total_attempts}
 # --- 7. Run the app ---
 # --------------------------------------------------------------------------
 if __name__ == "__main__":
-    app.run()
+    app.run(host='0.0.0.0', port=5000, debug=True)
