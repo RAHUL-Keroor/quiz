@@ -29,6 +29,7 @@ from nltk.tokenize import sent_tokenize, word_tokenize
 from nltk.corpus import stopwords
 
 from nltk.corpus import stopwords
+from werkzeug.utils import secure_filename
 
 
 
@@ -235,23 +236,20 @@ def generate_questions_from_pdf(pdf_path, num_questions=5, question_types=None):
 
     return questions
 
+
+
 @app.route('/upload_pdf', methods=['POST'])
 def upload_pdf():
-    """
-    Step 1: Upload PDF → Generate questions → Show editable list before saving.
-    Step 2: User reviews → Save Quiz via /save_quiz
-    """
     pdf = request.files.get('pdf_file')
     num_questions = int(request.form.get('num_questions', 5))
     Quiz_name = request.form.get('Quiz_name', 'Anonymous')
     timer = int(request.form.get('timer_minutes', 5))
     is_shuffled = request.form.get('is_shuffled') == 'true'
 
-    # ✅ New: USN range inputs
     usn_start = request.form.get('usn_start', '').strip().upper()
     usn_end = request.form.get('usn_end', '').strip().upper()
 
-    # ✅ Detect whether PDF is actually uploaded
+    # ❗ Fix: Use the correct variable name (pdf)
     if not pdf or pdf.filename.strip() == "":
         print("⚠️ No PDF uploaded. Creating empty question fields manually.")
         questions = []
@@ -263,15 +261,14 @@ def upload_pdf():
                 "description": ""
             })
     else:
-        # --- Save uploaded PDF locally ---
-        # Save uploaded PDF temporarily (Render allows only /tmp)
-        filename = secure_filename(pdf_file.filename)
+        # --- Save uploaded PDF temporarily (Render allows only /tmp) ---
+        filename = secure_filename(pdf.filename)
         save_path = os.path.join("/tmp", filename)
-        pdf_file.save(save_path)
+        pdf.save(save_path)
 
         questions = generate_questions_from_pdf(save_path, num_questions)
 
-    # --- Clean and normalize question options ---
+    # --- Normalize Options ---
     for q in questions:
         opts = q.get("options", [])
         if not isinstance(opts, list):
@@ -281,7 +278,6 @@ def upload_pdf():
             opts.append(f"Option {chr(65 + len(opts))}")
         q["options"] = opts
 
-    # ✅ Show editable form
     return render_template(
         'display_generated_questions.html',
         questions=questions,
@@ -291,8 +287,9 @@ def upload_pdf():
         is_shuffled=is_shuffled,
         usn_start=usn_start,
         usn_end=usn_end,
-        start_time=request.form.get('start_time') 
+        start_time=request.form.get('start_time')
     )
+
 @app.route('/save_quiz', methods=['POST'])
 def save_quiz():
     num_questions = int(request.form.get('num_questions', 0))
