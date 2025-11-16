@@ -4,7 +4,12 @@ pymongo
 dnspython
 flask-cors
 Flask-Login
+Flask-Mail
 python-dotenv
+
 pytz
 PyPDF2
 nltk
+spacy
+fpdf
+python-docx
