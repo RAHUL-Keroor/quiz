@@ -28,6 +28,8 @@ from docx import Document
 from nltk.tokenize import sent_tokenize, word_tokenize
 from nltk.corpus import stopwords
 
+from nltk.corpus import stopwords
+
 
 
 # --------------------------------------------------------------------------
@@ -69,7 +71,8 @@ nlp = spacy.load("en_core_web_sm")
 from pymongo import MongoClient
 
 def get_db_connection():
-    client = MongoClient("mongodb+srv://rahul:Rahul%40bitm@cluster0.ak99aiq.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
+    mongo_uri = os.getenv("MONGO_URI")
+    client = MongoClient(mongo_uri)
     return client["quiz_app_db"]
 
 
@@ -121,7 +124,7 @@ def generate_questions_from_pdf(pdf_path, num_questions=5, question_types=None):
             text += page_text + " "
 
     # --- Step 2: Split into valid sentences ---
-    sentences = [s.strip() for s in sent_tokenize(text) if len(s.split()) > 5]
+    sentences = [s.strip() for s in re.split(r'[.!?]\s+', text) if len(s.split()) > 5]
     if not sentences:
         return []
 
