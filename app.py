@@ -47,17 +47,14 @@ DATABASE = 'quiz.db'
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# Make sure nltk data exists
-nltk.download('punkt')
-nltk.download('stopwords')
+
 
 # --------------------------------------------------------------------------
 # --- 2. Database Utility Functions ---
 # --------------------------------------------------------------------------
 
 
-# Load SpaCy model for NLP question generation
-nlp = spacy.load("en_core_web_sm")
+# Load SpaCy model for NLP question gene
 from pymongo import MongoClient
 
 def get_db_connection():
@@ -77,13 +74,7 @@ def options_from_db(options_str):
 # --- 3. Improved NLP-Powered Question Generator ---
 
 
-# load the spaCy model (with fallback if missing)
-try:
-    nlp = spacy.load("en_core_web_sm")
-except OSError:
-    import subprocess
-    subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"])
-    nlp = spacy.load("en_core_web_sm")
+
 def generate_questions_from_pdf(pdf_path, num_questions=5, question_types=None):
     """
     PDF → Text → Questions (NO NLTK, NO SPACY)
