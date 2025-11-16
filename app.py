@@ -264,10 +264,11 @@ def upload_pdf():
             })
     else:
         # --- Save uploaded PDF locally ---
-        save_path = os.path.join(UPLOAD_FOLDER, pdf.filename)
-        pdf.save(save_path)
+        # Save uploaded PDF temporarily (Render allows only /tmp)
+        filename = secure_filename(pdf_file.filename)
+        save_path = os.path.join("/tmp", filename)
+        pdf_file.save(save_path)
 
-        # --- Generate questions from the PDF ---
         questions = generate_questions_from_pdf(save_path, num_questions)
 
     # --- Clean and normalize question options ---
