@@ -74,71 +74,148 @@ def options_from_db(options_str):
 # --- 3. Improved NLP-Powered Question Generator ---
 
 
-
 def generate_questions_from_pdf(pdf_path, num_questions=5, question_types=None):
     """
-    PDF → Text → Questions (NO NLTK, NO SPACY)
-    Safe for Render deployment.
+    SAFE + MOBILE SUPPORTED VERSION
+    Generates:
+      - WH Questions
+      - True/False
+      - Fill in the blanks
+      - Definition-based questions
     """
 
-    # ---- READ PDF ----
-    text = ""
-    with open(pdf_path, "rb") as f:
-        reader = PyPDF2.PdfReader(f)
-        for page in reader.pages:
-            try:
-                page_text = page.extract_text() or ""
-            except:
-                page_text = ""
-            page_text = re.sub(r"[^\x00-\x7F]+", " ", page_text)
-            text += page_text + " "
+    # Load stopwords
+    stop_words = set(stopwords.words("english"))
 
-    if not text.strip():
+    # Load SpaCy model safely
+    try:
+        nlp = spacy.load("en_core_web_sm")
+    except OSError:
+        import subprocess
+        subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"])
+        nlp = spacy.load("en_core_web_sm")
+
+    # --- Step 1: Extract Clean Text From PDF ---
+    text = ""
+    try:
+        with open(pdf_path, "rb") as f:
+            try:
+                reader = PyPDF2.PdfReader(f)
+            except Exception as e:
+                print("❌ PDF reading failed:", e)
+                return []   # SAFEST OPTION
+
+            for page in reader.pages:
+                try:
+                    page_text = page.extract_text() or ""
+                except:
+                    page_text = ""
+
+                page_text = re.sub(r"[^\x00-\x7F]+", " ", page_text)
+                text += page_text + " "
+
+    except Exception as e:
+        print("❌ Could not open PDF:", e)
         return []
 
-    # ---- BASIC SENTENCE SPLITTING ----
-    sentences = re.split(r'[.!?]\s+', text)
-    sentences = [s.strip() for s in sentences if len(s.split()) > 5]
+    if len(text.strip()) < 20:
+        print("❌ PDF has no readable text")
+        return []
+
+    # --- Step 2: Split into sentences ---
+    try:
+        sentences = [s.strip() for s in re.split(r"[.!?]\s+", text) if len(s.split()) > 5]
+    except Exception as e:
+        print("❌ Sentence splitting failed:", e)
+        sentences = []
 
     if not sentences:
         return []
 
-    # ---- BASIC STOPWORDS LIST (no nltk) ----
-    stop_words = {
-        "the","is","am","are","and","or","of","to","for","with","a","an","in",
-        "on","that","this","it","as","be","by","from","at","was","were"
-    }
+    # --- Step 3: Build distractor pool ---
+    try:
+        all_words = [w for w in word_tokenize(text) if w.isalpha() and w.lower() not in stop_words]
+    except:
+        all_words = []
 
-    # ---- WORD EXTRACTION ----
-    words = re.findall(r'\b[a-zA-Z]+\b', text)
-    words = [w.lower() for w in words if w.lower() not in stop_words]
+    all_unique = list(set(all_words))
+    if len(all_unique) < 10:
+        all_unique += ["system", "process", "method", "value", "model", "design"]
 
-    if len(words) < 10:
-        words += ["system", "software", "model", "process", "method", "design"]
-
-    unique_words = list(set(words))
-
+    # --- Step 4: Generate Questions ---
     questions = []
     used_sentences = set()
 
-    # Default question types
     if not question_types:
-        question_types = ["cloze", "truefalse", "definition", "wh"]
+        question_types = ["wh", "truefalse", "cloze", "definition"]
 
-    # ---- GENERATE QUESTIONS ----
-    for sent in sentences:
+    for sent in random.sample(sentences, min(num_questions * 2, len(sentences))):
+
         if sent in used_sentences:
             continue
         used_sentences.add(sent)
 
+        doc = nlp(sent)
         q_type = random.choice(question_types)
 
-        # ------------------------- #
-        # 1️⃣ TRUE / FALSE QUESTIONS
-        # ------------------------- #
-        if q_type == "truefalse":
-            statement = sent
+        # -----------------------------
+        # 1️⃣ WH QUESTIONS
+        # -----------------------------
+        if q_type == "wh":
+            for ent in doc.ents:
+                label = ent.label_
+                q_text = None
+
+                if label == "PERSON":
+                    q_text = sent.replace(ent.text, "Who")
+                elif label == "ORG":
+                    q_text = sent.replace(ent.text, "Which organization")
+                elif label == "GPE":
+                    q_text = sent.replace(ent.text, "Where")
+                elif label == "DATE":
+                    q_text = sent.replace(ent.text, "When")
+
+                if q_text:
+                    q_text += "?"
+                    correct = ent.text
+                    opts = [correct] + random.sample(all_unique, 3)
+                    random.shuffle(opts)
+
+                    questions.append({
+                        "question_text": q_text,
+                        "options": opts,
+                        "correct_answer": correct,
+                        "description": ""
+                    })
+                    break
+
+        # -----------------------------
+        # 2️⃣ DEFINITION QUESTIONS
+        # -----------------------------
+        elif q_type == "definition" and (" is " in sent or " refers to " in sent):
+            try:
+                topic = sent.split(" is ")[0].strip()
+                correct = sent.split(" is ")[1].strip()
+
+                opts = [correct] + random.sample(all_unique, 3)
+                random.shuffle(opts)
+
+                questions.append({
+                    "question_text": f"What is {topic}?",
+                    "options": opts,
+                    "correct_answer": correct,
+                    "description": ""
+                })
+            except:
+                pass
+
+        # -----------------------------
+        # 3️⃣ TRUE OR FALSE
+        # -----------------------------
+        elif q_type == "truefalse":
             is_true = random.choice([True, False])
+            statement = sent
+
             if not is_true:
                 statement = re.sub(r"\bis\b", "is not", statement)
                 statement = re.sub(r"\bare\b", "are not", statement)
@@ -147,67 +224,41 @@ def generate_questions_from_pdf(pdf_path, num_questions=5, question_types=None):
                 "question_text": f"True or False: {statement}",
                 "options": ["True", "False"],
                 "correct_answer": "True" if is_true else "False",
-                "description": "Choose if the statement is correct."
+                "description": ""
             })
 
-        # ------------------------- #
-        # 2️⃣ DEFINITION QUESTIONS
-        # ------------------------- #
-        elif q_type == "definition" and (" is " in sent):
-            parts = sent.split(" is ")
-            if len(parts) >= 2:
-                topic = parts[0].strip()
-                answer = "is ".join(parts[1:]).strip()
-                incorrect = random.sample(unique_words, 3)
-
-                questions.append({
-                    "question_text": f"What is {topic}?",
-                    "options": [answer] + incorrect,
-                    "correct_answer": answer,
-                    "description": ""
-                })
-
-        # ------------------------- #
-        # 3️⃣ WH QUESTIONS (simple)
-        # ------------------------- #
-        elif q_type == "wh":
-            if "because" in sent.lower():
-                q = sent.split("because")[0].strip() + " Why?"
-                ans = sent.split("because")[1].strip()
-                options = [ans] + random.sample(unique_words, 3)
-
-                questions.append({
-                    "question_text": q,
-                    "options": options,
-                    "correct_answer": ans,
-                    "description": ""
-                })
-            else:
-                continue
-
-        # ------------------------- #
-        # 4️⃣ CLOZE (FILL-IN-THE-BLANK)
-        # ------------------------- #
+        # -----------------------------
+        # 4️⃣ FILL IN THE BLANK (CLOZE)
+        # -----------------------------
         else:
-            words_in_sent = re.findall(r"\b[a-zA-Z]+\b", sent)
-            words_clean = [w for w in words_in_sent if w.lower() not in stop_words]
+            try:
+                words = [w for w in word_tokenize(sent) if w.isalpha() and w.lower() not in stop_words]
+                if len(words) < 2:
+                    continue
 
-            if len(words_clean) >= 3:
-                answer = random.choice(words_clean)
-                blank_sentence = re.sub(r"\b" + re.escape(answer) + r"\b", "_____", sent, count=1)
-                distractors = random.sample(unique_words, 3)
+                correct = random.choice(words)
+                q_text = re.sub(r"\b" + re.escape(correct) + r"\b", "_____", sent, count=1)
+
+                distractors = [w for w in all_unique if w.lower() != correct.lower()]
+                random.shuffle(distractors)
+
+                opts = [correct] + distractors[:3]
+                random.shuffle(opts)
 
                 questions.append({
-                    "question_text": blank_sentence,
-                    "options": [answer] + distractors,
-                    "correct_answer": answer,
-                    "description": "Fill in the blank."
+                    "question_text": q_text,
+                    "options": opts,
+                    "correct_answer": correct,
+                    "description": ""
                 })
+            except:
+                continue
 
         if len(questions) >= num_questions:
             break
 
     return questions
+
 
 
 
