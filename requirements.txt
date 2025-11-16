@@ -7,3 +7,4 @@ Flask-Login
 python-dotenv
 pytz
 PyPDF2
+nltk
