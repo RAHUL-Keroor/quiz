@@ -273,10 +273,11 @@ def upload_pdf():
     usn_start = request.form.get('usn_start', '').strip().upper()
     usn_end = request.form.get('usn_end', '').strip().upper()
 
-    # ❗ Fix: Use the correct variable name (pdf)
+    questions = []
+
+    # ✅ CASE 1 — No PDF uploaded
     if not pdf or pdf.filename.strip() == "":
         print("⚠️ No PDF uploaded. Creating empty question fields manually.")
-        questions = []
         for i in range(num_questions):
             questions.append({
                 "question_text": f"Question {i+1}: ",
@@ -284,22 +285,40 @@ def upload_pdf():
                 "correct_answer": "",
                 "description": ""
             })
+
     else:
         # --- Save uploaded PDF temporarily (Render allows only /tmp) ---
         filename = secure_filename(pdf.filename)
         save_path = os.path.join("/tmp", filename)
         pdf.save(save_path)
 
-        questions = generate_questions_from_pdf(save_path, num_questions)
+        # ✅ CASE 2 — Try reading PDF, fallback if broken
+        try:
+            questions = generate_questions_from_pdf(save_path, num_questions)
 
-    # --- Normalize Options ---
+        except Exception as e:
+            print("❌ PDF error:", e)
+            print("⚠️ Mobile PDF upload was corrupted — using empty question fields.")
+
+            # fallback empty questions
+            for i in range(num_questions):
+                questions.append({
+                    "question_text": f"Question {i+1}: ",
+                    "options": ["", "", "", ""],
+                    "correct_answer": "",
+                    "description": ""
+                })
+
+    # --- Normalize Options (always keep 4 options) ---
     for q in questions:
         opts = q.get("options", [])
         if not isinstance(opts, list):
             opts = [str(opts)]
         opts = [str(o).strip() for o in opts if o]
+
         while len(opts) < 4:
             opts.append(f"Option {chr(65 + len(opts))}")
+
         q["options"] = opts
 
     return render_template(
