@@ -16,7 +16,13 @@
     <!-- PDF Upload (Optional) -->
     <div class="mb-3">
       <label class="form-label">Upload PDF (Optional)</label>
-      <input type="file" name="pdf_file" class="form-control" accept="application/pdf" required>
+
+      <input type="file"
+             name="pdf_file"
+             class="form-control"
+             accept="application/pdf,.pdf"
+             capture="filesystem">
+
       <small class="text-muted">You can skip this and add questions manually.</small>
     </div>
 
@@ -34,12 +40,11 @@
       </div>
     </div>
 
-    <!-- 🕒 New: Optional Start Time (For Live Mode) -->
+    <!-- Optional Start Time -->
     <div class="mb-3">
       <label class="form-label">Start Time</label>
       <input type="time" name="start_time" class="form-control">
     </div>
-
 
     <!-- USN Range -->
     <div class="form-group mt-3">
@@ -60,7 +65,6 @@
       <label class="form-check-label">Shuffle Questions</label>
     </div>
 
-    <!-- Submit Button -->
     <button type="submit" class="btn btn-success w-100">
       <i class="bi bi-gear"></i> Generate Quiz
     </button>
