@@ -351,7 +351,6 @@ def join_quiz():
 
 # --------------------------------------------------------------------------
 # --- ATTEMPT QUIZ ROUTE (Updated with proper start_time waiting) ---
-
 @app.route('/quiz/attempt', methods=['GET', 'POST'])
 def attempt_quiz():
     # --- [1] Verify session data ---
@@ -379,10 +378,9 @@ def attempt_quiz():
     # --- [4] Time-based access control ---
     india_tz = pytz.timezone("Asia/Kolkata")
     now = datetime.now(india_tz)
-
     quiz_start = quiz.get("start_time")
 
-    # Convert start_time from DB → Python datetime
+    # Convert start_time to datetime
     if isinstance(quiz_start, str):
         try:
             quiz_start = datetime.fromisoformat(quiz_start)
@@ -392,13 +390,13 @@ def attempt_quiz():
             except:
                 quiz_start = None
 
-    # Make timezone-aware
+    # Ensure timezone-aware
     if quiz_start:
         if quiz_start.tzinfo is None:
             quiz_start = pytz.UTC.localize(quiz_start)
         quiz_start = quiz_start.astimezone(india_tz)
 
-    # Student cannot open quiz before start time
+    # BLOCK STUDENT IF QUIZ NOT STARTED
     if quiz_start and now < quiz_start:
         wait_seconds = int((quiz_start - now).total_seconds())
         return render_template(
@@ -408,7 +406,7 @@ def attempt_quiz():
             display_start=quiz_start
         )
 
-    # --- [5] Clean & normalize question options ---
+    # --- [5] Clean and normalize options ---
     import ast
     q_list = []
 
@@ -449,15 +447,13 @@ def attempt_quiz():
             submitted = request.form.get(f"q_{qid}")
             submitted_answers[qid] = submitted
 
-            # Check if answered at least one question
-            if submitted:
+            if submitted:                     # <-- FIX 1: detects if student attempted
                 answered_any = True
 
-            # Score calculation
             if submitted and submitted.strip() == q.get("correct_answer", "").strip():
                 total_score += 1
 
-        # 🚫 Do NOT create attempt if student answered nothing
+        # 🚫 FIX 2: DO NOT SAVE ATTEMPT IF NOTHING ANSWERED
         if not answered_any:
             return render_template(
                 "attempt_quiz.html",
@@ -467,7 +463,7 @@ def attempt_quiz():
                 final_view=False
             )
 
-        # ✔ Create attempt ONLY when user submits answers
+        # ✔ Legitimate attempt → Save in DB
         db.attempts.update_one(
             {"quiz_id": quiz_id, "usn": attempt_data["usn"]},
             {"$set": {
@@ -641,83 +637,91 @@ def view_attempt_details(attempt_id):
 
 
 @app.route('/view/creator', methods=['GET', 'POST'])
+@app.route('/view/creator', methods=['GET', 'POST'])
 def creator_view():
     if request.method == 'POST':
-        # ✅ STEP 1: Get quiz_code and creator_token directly from form
+
+        # -------------------------------
+        # 1. READ FORM INPUTS
+        # -------------------------------
         quiz_code = request.form.get('quiz_code', '').strip().upper()
         creator_token = request.form.get('creator_token', '').strip()
 
         if not quiz_code or not creator_token:
             return render_template('creator_view.html', error="Please enter both Quiz Code and Creator Token.")
 
-        # ✅ STEP 2: Connect to MongoDB
+        # -------------------------------
+        # 2. CONNECT DB
+        # -------------------------------
         db = get_db_connection()
 
-        # ✅ STEP 3: Validate quiz + token
+        # -------------------------------
+        # 3. VALIDATE QUIZ + TOKEN
+        # -------------------------------
         quiz = db.quizzes.find_one({"quiz_code": quiz_code, "creator_token": creator_token})
         if not quiz:
             return render_template('creator_view.html', error="Invalid Quiz Code or Creator Token.")
 
-        # ✅ STEP 4: Fetch attempts
+        # -------------------------------
+        # 4. FETCH ATTEMPTS
+        # -------------------------------
         attempts = list(db.attempts.find({"quiz_id": quiz["_id"]}))
         if not attempts:
             return render_template('creator_view.html', error="No attempts found for this quiz.")
 
-        # ✅ STEP 5: Extract & format time fields
+        # -------------------------------
+        # 5. FORMAT RESULT DATA
+        # -------------------------------
+        india_tz = pytz.timezone("Asia/Kolkata")
         result_data = []
+
+        def to_ist(t):
+            if isinstance(t, datetime):
+                if t.tzinfo is None:
+                    t = pytz.UTC.localize(t)
+                return t.astimezone(india_tz)
+            return None
+
         for a in attempts:
             usn = a.get("usn", "N/A")
             name = a.get("student_name", "Unknown")
             score = a.get("score", 0)
-            start_time = a.get("start_time")
-            end_time = a.get("end_time")
 
-            def fmt_time(t):
-                if isinstance(t, datetime):
-                    return t.strftime("%H:%M:%S")
-                elif isinstance(t, str) and len(t) >= 19:
-                    return t[11:19]
-                return "N/A"
-
-            def fmt_date(t):
-                if isinstance(t, datetime):
-                    return t.strftime("%Y-%m-%d")
-                elif isinstance(t, str) and len(t) >= 10:
-                    return t[:10]
-                return "N/A"
-
-            date_str = fmt_date(start_time or end_time)
-            start_str = fmt_time(start_time)
-            end_str = fmt_time(end_time)
+            start_time = to_ist(a.get("start_time"))
+            end_time = to_ist(a.get("end_time"))
 
             result_data.append({
                 "name": name,
                 "usn": usn,
-                "date": date_str,
-                "start_time": start_str,
-                "end_time": end_str,
+                "date": start_time.strftime("%Y-%m-%d") if start_time else "N/A",
+                "start_time": start_time.strftime("%H:%M:%S") if start_time else "N/A",
+                "end_time": end_time.strftime("%H:%M:%S") if end_time else "N/A",
                 "score": score
             })
 
         total_attempts = len(result_data)
 
-        # ✅ STEP 6: Export results if requested
+        # -------------------------------
+        # 6. EXPORT IF ASKED
+        # -------------------------------
         creator_email = request.form.get('creator_email')
         export_format = request.form.get('export_format')
 
         if export_format == 'pdf':
             return export_results_pdf(result_data, quiz_code, total_attempts)
+
         elif export_format == 'docx':
             return export_results_docx(result_data, quiz_code, total_attempts)
 
         if creator_email:
             try:
                 send_results_docx_via_email(creator_email, result_data, quiz_code, total_attempts)
-                print(f"📧 Results sent to {creator_email}")
             except Exception as e:
-                print(f"⚠️ Failed to send email: {e}")
+                print("Email error:", e)
 
-        # ✅ STEP 7: Render HTML table
+        # -------------------------------
+        # 7. RENDER PAGE
+        # -------------------------------
         return render_template(
             'creator_view.html',
             quiz_code=quiz_code,
@@ -725,7 +729,7 @@ def creator_view():
             total_attempts=total_attempts
         )
 
-    # Default GET
+    # DEFAULT GET
     return render_template('creator_view.html')
 
 
