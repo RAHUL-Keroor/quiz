@@ -447,7 +447,12 @@ def attempt_quiz():
         random.shuffle(q_list)
 
     # --- [7] Handle submission ---
+    # --- [7] Handle submission ---
     if request.method == "POST":
+
+        # Check if user actually submitted at least one answer
+        answered_any = False
+
         total_score = 0
         submitted_answers = {}
 
@@ -455,9 +460,25 @@ def attempt_quiz():
             qid = str(q["_id"])
             submitted = request.form.get(f"q_{qid}")
             submitted_answers[qid] = submitted
+
+            if submitted:
+                answered_any = True  # <-- student answered at least one question
+
             if submitted and submitted.strip() == q.get("correct_answer", "").strip():
                 total_score += 1
 
+        # ❗ Prevent creating attempt when user has not answered anything
+        if not answered_any:
+            print("⚠ User opened quiz but did NOT answer anything. Not marking as attempt.")
+            return render_template(
+                "attempt_quiz.html",
+                quiz=quiz,
+                questions=q_list,
+                final_view=False,
+                msg="You must answer at least one question before submitting."
+            )
+
+        # ✔ Save attempt only when student actually submits
         db.attempts.update_one(
             {"quiz_id": quiz_id, "usn": attempt_data["usn"]},
             {"$set": {
@@ -472,6 +493,7 @@ def attempt_quiz():
         )
 
         session.pop("attempt_data", None)
+
         return render_template(
             "attempt_quiz.html",
             quiz=quiz,
