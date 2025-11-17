@@ -290,8 +290,7 @@ def save_quiz():
 def index():
     return render_template('index.html')
 
-@app.route('/join', methods=['GET', 'POST'])
-@app.route('/join', methods=['GET', 'POST'])
+@app.route('/join_quiz', methods=['GET', 'POST'])
 def join_quiz():
     db = get_db_connection()
 
