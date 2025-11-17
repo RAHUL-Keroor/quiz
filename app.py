@@ -351,7 +351,7 @@ def join_quiz():
 
 # --------------------------------------------------------------------------
 # --- ATTEMPT QUIZ ROUTE (Updated with proper start_time waiting) ---
-# --------------------------------------------------------------------------
+
 @app.route('/quiz/attempt', methods=['GET', 'POST'])
 def attempt_quiz():
     # --- [1] Verify session data ---
@@ -367,10 +367,8 @@ def attempt_quiz():
     except Exception:
         return "Invalid quiz ID format", 400
 
-    # --- [3] Fetch quiz and questions ---
+    # --- [3] Fetch quiz + questions ---
     quiz = db.quizzes.find_one({"_id": quiz_id})
-    print("📄 Raw start_time from MongoDB:", quiz.get("start_time"), type(quiz.get("start_time")))
-
     if not quiz:
         return "Quiz not found", 404
 
@@ -378,49 +376,42 @@ def attempt_quiz():
     if not questions:
         return "No questions found for this quiz.", 404
 
-    # --- [4] Time-based access control (LIVE WAITING LOGIC) ---
-    # --- 4. Check if current time < start_time ---
+    # --- [4] Time-based access control ---
     india_tz = pytz.timezone("Asia/Kolkata")
     now = datetime.now(india_tz)
 
     quiz_start = quiz.get("start_time")
 
-    # 🕒 Convert start_time safely from MongoDB
+    # Convert start_time from DB → Python datetime
     if isinstance(quiz_start, str):
         try:
             quiz_start = datetime.fromisoformat(quiz_start)
-        except Exception:
+        except:
             try:
                 quiz_start = datetime.strptime(quiz_start, "%Y-%m-%d %H:%M:%S")
-            except Exception:
+            except:
                 quiz_start = None
 
-    # Ensure timezone-awareness
-    # ✅ Ensure quiz_start is timezone-aware and in IST
+    # Make timezone-aware
     if quiz_start:
-        # MongoDB usually stores in UTC, so convert it to IST
         if quiz_start.tzinfo is None:
             quiz_start = pytz.UTC.localize(quiz_start)
         quiz_start = quiz_start.astimezone(india_tz)
 
-        print("🕒 Converted quiz_start to IST:", quiz_start.strftime("%Y-%m-%d %H:%M:%S"))
-        print("🕒 Current time (IST):", now.strftime("%Y-%m-%d %H:%M:%S"))
-
-
-    # 🕐 Compare current time with quiz start
+    # Student cannot open quiz before start time
     if quiz_start and now < quiz_start:
         wait_seconds = int((quiz_start - now).total_seconds())
-        print(f"⏳ Waiting: Quiz starts in {wait_seconds} seconds")
-        print(f"🕒 Current Time (IST): {now.strftime('%H:%M:%S')}")
-        print(f"🕒 Quiz Start Time (IST): {quiz_start.strftime('%H:%M:%S')}")
-        display_start = quiz_start.astimezone(india_tz)
-        return render_template("attempt_quiz.html", quiz=quiz, wait_seconds=wait_seconds, display_start=display_start)
+        return render_template(
+            "attempt_quiz.html",
+            quiz=quiz,
+            wait_seconds=wait_seconds,
+            display_start=quiz_start
+        )
 
-
-
-    # --- [5] Clean and normalize question options ---
+    # --- [5] Clean & normalize question options ---
     import ast
     q_list = []
+
     for q in questions:
         q_dict = dict(q)
         opts = q_dict.get("options", [])
@@ -428,8 +419,8 @@ def attempt_quiz():
         if isinstance(opts, str):
             try:
                 opts = ast.literal_eval(opts)
-            except Exception:
-                opts = [x.strip() for x in opts.split('|') if x.strip()]
+            except:
+                opts = [x.strip() for x in opts.split("|") if x.strip()]
 
         if not isinstance(opts, list):
             opts = [str(opts)]
@@ -447,38 +438,36 @@ def attempt_quiz():
         random.shuffle(q_list)
 
     # --- [7] Handle submission ---
-    # --- [7] Handle submission ---
     if request.method == "POST":
 
-        # Check if user actually submitted at least one answer
         answered_any = False
-
-        total_score = 0
         submitted_answers = {}
+        total_score = 0
 
         for q in q_list:
             qid = str(q["_id"])
             submitted = request.form.get(f"q_{qid}")
             submitted_answers[qid] = submitted
 
+            # Check if answered at least one question
             if submitted:
-                answered_any = True  # <-- student answered at least one question
+                answered_any = True
 
+            # Score calculation
             if submitted and submitted.strip() == q.get("correct_answer", "").strip():
                 total_score += 1
 
-        # ❗ Prevent creating attempt when user has not answered anything
+        # 🚫 Do NOT create attempt if student answered nothing
         if not answered_any:
-            print("⚠ User opened quiz but did NOT answer anything. Not marking as attempt.")
             return render_template(
                 "attempt_quiz.html",
                 quiz=quiz,
                 questions=q_list,
-                final_view=False,
-                msg="You must answer at least one question before submitting."
+                msg="⚠ You must answer at least one question before submitting.",
+                final_view=False
             )
 
-        # ✔ Save attempt only when student actually submits
+        # ✔ Create attempt ONLY when user submits answers
         db.attempts.update_one(
             {"quiz_id": quiz_id, "usn": attempt_data["usn"]},
             {"$set": {
@@ -497,15 +486,20 @@ def attempt_quiz():
         return render_template(
             "attempt_quiz.html",
             quiz=quiz,
-            score=total_score,
-            total_questions=len(q_list),
             questions=q_list,
             submitted=submitted_answers,
+            score=total_score,
+            total_questions=len(q_list),
             final_view=True
         )
 
-    # --- [8] Render quiz normally if GET ---
-    return render_template("attempt_quiz.html", quiz=quiz, questions=q_list, final_view=False)
+    # --- [8] Normal quiz page (GET) ---
+    return render_template(
+        "attempt_quiz.html",
+        quiz=quiz,
+        questions=q_list,
+        final_view=False
+    )
 
 
 
